@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Shared utilities for agent-kube-ops harness scripts.
 
+detect_platform() {
+  case "$OSTYPE" in
+    linux-*)   PLATFORM=linux ;;
+    darwin*)   PLATFORM=macos ;;
+    msys*|cygwin*) PLATFORM=windows ;;
+    *)         PLATFORM=unknown ;;
+  esac
+  echo "Platform: $PLATFORM | Shell: $(basename "${SHELL:-unknown}")"
+}
+
 INFRA_FILE="$ROOT_DIR/docs/infrastructure.md"
 DEPLOY_STATE_FILE="$ROOT_DIR/state/current-deployment.json"
 

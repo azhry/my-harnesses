@@ -4,6 +4,20 @@ AI agent harness for deploying applications to EKS. Four-gate pipeline: tool rea
 
 ## How Humans Should Use This Harness
 
+### 0. Run setup first (guided configuration)
+
+If tools or infrastructure config are missing, run setup for guided prompts:
+
+```bash
+# Linux / macOS
+bash scripts/setup.sh
+
+# Windows PowerShell
+.\scripts\setup.ps1
+```
+
+Setup checks for: awscli, kubectl, docker, git — shows install commands per platform if missing. Prompts for AWS credentials, kubeconfig, and infrastructure values (account ID, region, ECR, etc.). Writes everything to `docs/infrastructure.md`.
+
 ### 1. Start an AI agent session in this directory
 
 Open your AI coding agent (Claude Code, Codex, etc.) in the `agent-kube-ops/` directory.
@@ -19,7 +33,7 @@ The agent reads `AGENTS.md` and follows the four-gate workflow automatically.
 ### 3. Let the agent run the gates
 
 The agent will:
-1. Run `bash init.sh` — checks tools (awscli, kubectl, docker, git, git remote access) + permissions
+1. Run `init.sh` (Linux/macOS) or `.\init.ps1` (Windows) — detects platform, checks tools + permissions
 2. Clone the remote git repo into `workspace/`
 3. Inspect your app code to determine the production runtime
 4. Create a Dockerfile (if missing), build and push to ECR
@@ -39,19 +53,20 @@ The agent will:
 If you need to intervene:
 
 ```bash
-# Re-run tool check (with git remote)
+# Linux / macOS / Git Bash
 GIT_REPO=https://github.com/org/my-app.git bash scripts/01-check-tools.sh
-
-# Re-run permissions check
 bash scripts/02-verify-permissions.sh
-
-# Run deploy manually
 GIT_REPO=https://github.com/org/my-app.git NAMESPACE=my-ns APP_NAME=my-app IMAGE_TAG=v1.0 bash scripts/03-deploy-app.sh
-
-# Run healthcheck manually
 NAMESPACE=my-ns APP_NAME=my-app bash scripts/04-healthcheck.sh
+kubectl rollout undo deployment/my-app -n my-ns
+```
 
-# Rollback manually
+```powershell
+# Windows PowerShell
+$env:GIT_REPO="https://github.com/org/my-app.git"; .\scripts\01-check-tools.ps1
+.\scripts\02-verify-permissions.ps1
+$env:GIT_REPO="https://github.com/org/my-app.git"; $env:NAMESPACE="my-ns"; $env:APP_NAME="my-app"; $env:IMAGE_TAG="v1.0"; .\scripts\03-deploy-app.ps1
+$env:NAMESPACE="my-ns"; $env:APP_NAME="my-app"; .\scripts\04-healthcheck.ps1
 kubectl rollout undo deployment/my-app -n my-ns
 ```
 
@@ -77,11 +92,13 @@ All AWS account details, ECR URIs, RDS endpoints, ingress DNS, and cert ARNs are
 |------|---------|
 | AGENTS.md | Root instructions — agent reads this first |
 | CLAUDE.md | Claude Code-specific instructions |
-| init.sh | Startup: tools + permissions check |
-| scripts/01-check-tools.sh | Gate 1: verify CLI tools + git remote access |
-| scripts/02-verify-permissions.sh | Gate 2: verify AWS/k8s access |
-| scripts/03-deploy-app.sh | Gate 3: clone repo, build, push, apply |
-| scripts/04-healthcheck.sh | Gate 4: pod + ingress healthcheck |
+| init.sh / init.ps1 | Startup: tools + permissions check (auto-detects OS) |
+| scripts/01-check-tools.sh / .ps1 | Gate 1: verify CLI tools + git remote access |
+| scripts/02-verify-permissions.sh / .ps1 | Gate 2: verify AWS/k8s access |
+| scripts/03-deploy-app.sh / .ps1 | Gate 3: clone repo, build, push, apply |
+| scripts/04-healthcheck.sh / .ps1 | Gate 4: pod + ingress healthcheck |
+| scripts/setup.sh / setup.ps1 | Guided setup — prompts for missing tools and config |
+| scripts/utils.sh / utils.ps1 | Shared utilities + platform detection |
 | PROGRESS.md | Session state log |
 | feature_list.json | Feature/deployment tracking |
 | state/current-deployment.json | Last deployment record (git_repo, git_hash, image, status) |

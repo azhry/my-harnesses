@@ -1,0 +1,218 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0d1117;
+  color: #c9d1d9;
+  min-height: 100vh;
+}
+
+header {
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 16px 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+header h1 { font-size: 20px; font-weight: 600; color: #f0f6fc; }
+header .subtitle { color: #8b949e; font-size: 13px; }
+
+main {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 0;
+  height: calc(100vh - 57px);
+}
+
+.sidebar {
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sidebar section {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 12px;
+}
+.sidebar h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #8b949e;
+  margin-bottom: 10px;
+}
+.sidebar label {
+  display: block;
+  font-size: 12px;
+  color: #8b949e;
+  margin: 8px 0 4px;
+}
+.sidebar input {
+  width: 100%;
+  padding: 6px 8px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #c9d1d9;
+  font-size: 13px;
+}
+.sidebar input:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
+.state-json {
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #8b949e;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.pipeline {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.pipeline h2 { font-size: 16px; margin-bottom: 12px; }
+
+.gate-flow {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  background: #161b22;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #30363d;
+}
+.gate-arrow {
+  flex: 1;
+  text-align: center;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8b949e;
+  position: relative;
+}
+.gate-arrow:not(:last-child)::after {
+  content: '→';
+  position: absolute;
+  right: -4px;
+  color: #30363d;
+}
+.gate-arrow.passed { color: #3fb950; }
+.gate-arrow.failed { color: #f85149; }
+.gate-arrow.active { color: #58a6ff; }
+
+.gates { display: flex; flex-direction: column; gap: 10px; }
+
+.gate-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 14px 16px;
+  transition: border-color 0.2s;
+}
+.gate-card.passed { border-color: #3fb950; }
+.gate-card.failed { border-color: #f85149; }
+.gate-card.running { border-color: #58a6ff; }
+.gate-card.locked { opacity: 0.6; }
+
+.gate-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.gate-badge {
+  background: #21262d;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.gate-title { font-size: 14px; font-weight: 600; flex: 1; }
+.gate-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.status-pending { color: #8b949e; }
+.status-running { color: #58a6ff; background: #0c2d6b; }
+.status-passed { color: #3fb950; background: #0b2e1a; }
+.status-failed { color: #f85149; background: #3d1114; }
+
+.gate-desc { font-size: 12px; color: #8b949e; margin: 4px 0 10px; }
+
+.btn-run {
+  background: #238636;
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-run:hover { background: #2ea043; }
+.btn-run:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+
+.pipeline-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.btn {
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-rollback { background: #da3633; color: #fff; }
+.btn-rollback:hover { background: #f85149; }
+.btn-reset { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+.btn-reset:hover { background: #30363d; }
+
+.log-panel {
+  grid-column: 1 / -1;
+  background: #0d1117;
+  border-top: 1px solid #30363d;
+  display: flex;
+  flex-direction: column;
+}
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 24px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+.log-header h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #8b949e; }
+#gate-indicator { font-size: 12px; color: #8b949e; }
+
+#log-output {
+  flex: 1;
+  padding: 12px 24px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #c9d1d9;
+}
+#log-output .log-info { color: #8b949e; }
+#log-output .log-pass { color: #3fb950; }
+#log-output .log-fail { color: #f85149; }
+#log-output .log-warn { color: #d29922; }
+#log-output .log-stderr { color: #f0883e; }

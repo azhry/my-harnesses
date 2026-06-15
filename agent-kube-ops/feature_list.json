@@ -1,0 +1,49 @@
+{
+  "project": "agent-kube-ops",
+  "last_updated": "",
+  "rules": {
+    "single_active_feature": true,
+    "passing_requires_evidence": true,
+    "do_not_skip_verification": true
+  },
+  "status_legend": {
+    "not_started": "Work has not begun.",
+    "in_progress": "This feature is the current active task.",
+    "blocked": "Work cannot continue until a documented blocker is resolved.",
+    "passing": "Required verification has passed and evidence is recorded."
+  },
+  "features": [
+    {
+      "id": "deploy-001",
+      "priority": 1,
+      "area": "deploy",
+      "title": "Deploy application to EKS",
+      "user_visible_behavior": "App runs on the EKS cluster, reachable via ingress, with all env config applied.",
+      "status": "not_started",
+      "verification": [
+        "GIT_REPO=<url> bash scripts/01-check-tools.sh — all tools present + git remote accessible",
+        "bash scripts/02-verify-permissions.sh — AWS + k8s perms OK",
+        "GIT_REPO=<url> bash scripts/03-deploy-app.sh — repo cloned, image built/pushed, manifests applied",
+        "bash scripts/04-healthcheck.sh — pods ready, ingress responds 2xx"
+      ],
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "deploy-002",
+      "priority": 2,
+      "area": "deploy",
+      "title": "Rollback on failed healthcheck",
+      "user_visible_behavior": "If healthcheck fails, cluster returns to previous known-good deployment.",
+      "status": "not_started",
+      "verification": [
+        "Deploy a deliberately broken image",
+        "Confirm healthcheck fails",
+        "Confirm rollback restores previous deployment",
+        "Confirm rollback is recorded in state"
+      ],
+      "evidence": [],
+      "notes": ""
+    }
+  ]
+}

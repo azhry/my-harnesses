@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agent-kube-ops</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>agent-kube-ops</h1>
+    <span class="subtitle">Kubernetes deployment harness</span>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <section class="config-panel">
+        <h3>Configuration</h3>
+        <label>Namespace</label>
+        <input id="cfg-namespace" value="default" placeholder="default">
+        <label>App Name</label>
+        <input id="cfg-appName" placeholder="my-app">
+        <label>Git Repo URL</label>
+        <input id="cfg-gitRepo" placeholder="https://github.com/org/app.git">
+        <label>Image Tag</label>
+        <input id="cfg-imageTag" placeholder="auto (git hash)">
+      </section>
+
+      <section class="state-panel">
+        <h3>Deployment State</h3>
+        <pre id="deployment-state" class="state-json">loading...</pre>
+      </section>
+
+      <section class="infra-panel">
+        <h3>Infrastructure</h3>
+        <pre id="infra-display" class="state-json">loading...</pre>
+      </section>
+    </aside>
+
+    <section class="pipeline">
+      <h2>Deployment Pipeline</h2>
+      <div class="gate-flow">
+        <div class="gate-arrow">1</div>
+        <div class="gate-arrow">2</div>
+        <div class="gate-arrow">3</div>
+        <div class="gate-arrow">4</div>
+      </div>
+
+      <div id="gates">
+        <div class="gate-card" data-gate="1">
+          <div class="gate-header">
+            <span class="gate-badge">Gate 1</span>
+            <span class="gate-title">Tool Readiness</span>
+            <span class="gate-status status-pending">pending</span>
+          </div>
+          <p class="gate-desc">Check awscli, kubectl, docker, git + git remote access</p>
+          <button class="btn-run" onclick="runGate(1)">Run</button>
+        </div>
+
+        <div class="gate-card locked" data-gate="2">
+          <div class="gate-header">
+            <span class="gate-badge">Gate 2</span>
+            <span class="gate-title">Permissions</span>
+            <span class="gate-status status-pending">pending</span>
+          </div>
+          <p class="gate-desc">Verify AWS IAM, ECR access, k8s RBAC</p>
+          <button class="btn-run" onclick="runGate(2)" disabled>Run</button>
+        </div>
+
+        <div class="gate-card locked" data-gate="3">
+          <div class="gate-header">
+            <span class="gate-badge">Gate 3</span>
+            <span class="gate-title">Deploy App</span>
+            <span class="gate-status status-pending">pending</span>
+          </div>
+          <p class="gate-desc">Clone repo, build Docker image, push to ECR, apply k8s manifests</p>
+          <button class="btn-run" onclick="runGate(3)" disabled>Run</button>
+        </div>
+
+        <div class="gate-card locked" data-gate="4">
+          <div class="gate-header">
+            <span class="gate-badge">Gate 4</span>
+            <span class="gate-title">Healthcheck</span>
+            <span class="gate-status status-pending">pending</span>
+          </div>
+          <p class="gate-desc">Verify pods ready + ingress responds</p>
+          <button class="btn-run" onclick="runGate(4)" disabled>Run</button>
+        </div>
+      </div>
+
+      <div class="pipeline-actions">
+        <button class="btn btn-rollback" onclick="rollback()">Rollback</button>
+        <button class="btn btn-reset" onclick="resetGates()">Reset Gates</button>
+      </div>
+    </section>
+
+    <section class="log-panel">
+      <div class="log-header">
+        <h3>Output</h3>
+        <div id="gate-indicator">Ready</div>
+      </div>
+      <pre id="log-output"><span class="log-info">Configure namespace, app name, and git repo URL above, then click Run on Gate 1.</span></pre>
+    </section>
+  </main>
+
+  <script src="/script.js"></script>
+</body>
+</html>

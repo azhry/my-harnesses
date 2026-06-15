@@ -1,0 +1,11 @@
+{
+  "git_repo": "",
+  "git_hash": "",
+  "image": "",
+  "namespace": "",
+  "app_name": "",
+  "deployed_at": "",
+  "status": "none",
+  "healthcheck_status": "",
+  "healthcheck_at": ""
+}

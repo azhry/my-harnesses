@@ -1,0 +1,6 @@
+node_modules/
+workspace/*/
+!workspace/.gitkeep
+
+# Infrastructure credentials and resource identifiers
+agent-kube-ops/docs/infrastructure.md

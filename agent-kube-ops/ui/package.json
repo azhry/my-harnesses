@@ -1,0 +1,13 @@
+{
+  "name": "agent-kube-ops-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web UI for agent-kube-ops deployment harness",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

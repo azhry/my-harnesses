@@ -630,6 +630,8 @@ h3 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+  max-height: 520px;
+  overflow-y: auto;
 }
 
 .lane {

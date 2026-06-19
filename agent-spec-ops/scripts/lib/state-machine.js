@@ -26,6 +26,7 @@ const states = [
   "backend_test",
   "backend_verified",
   "integration_verification",
+  "knowledge_improvement",
   "waiting_for_final_review",
   "done",
   "blocked"
@@ -56,10 +57,11 @@ const transitions = {
   backend_dev: ["backend_test", "implementation_in_progress", "blocked"],
   backend_test: ["backend_dev", "backend_verified", "blocked"],
   backend_verified: ["implementation_in_progress", "integration_verification", "blocked"],
-  integration_verification: ["waiting_for_final_review", "implementation_in_progress", "blocked"],
+  integration_verification: ["knowledge_improvement", "implementation_in_progress", "blocked"],
+  knowledge_improvement: ["waiting_for_final_review", "implementation_in_progress", "blocked"],
   waiting_for_final_review: ["done", "implementation_in_progress", "task_breakdown", "blocked"],
   done: [],
-  blocked: ["intake", "tool_readiness", "waiting_for_tool_readiness_review", "knowledge_discovery", "product_requirements", "task_breakdown", "implementation_in_progress"]
+  blocked: ["intake", "tool_readiness", "waiting_for_tool_readiness_review", "knowledge_discovery", "product_requirements", "task_breakdown", "implementation_in_progress", "knowledge_improvement"]
 };
 
 const roleNames = [

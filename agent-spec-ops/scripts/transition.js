@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 const { states, transitions, canTransition } = require("./lib/state-machine");
 const { appendEvent } = require("./lib/memory-store");
 const { checkContext } = require("./lib/context-check");
@@ -124,6 +125,73 @@ if (errors.length) {
 }
 
 const now = new Date().toISOString();
+
+if (currentState === "task_breakdown" && nextState === "waiting_for_delivery_plan_review") {
+  const loopCount = (state.loops || []).length;
+  state.loops = state.loops || [];
+  state.loops.push({
+    name: `loop_${loopCount + 1}`,
+    attempt: 1,
+    max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
+      ? state.agent_dispatch.max_attempts : 3,
+    last_failure: "",
+    status: "planned"
+  });
+}
+
+if (nextState === "implementation_in_progress") {
+  state.loops = state.loops || [];
+  const activeLoop = state.loops.find((l) => l.status === "planned");
+  if (activeLoop) {
+    activeLoop.status = "active";
+  } else {
+    state.loops.push({
+      name: `loop_${state.loops.length + 1}`,
+      attempt: 1,
+      max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
+        ? state.agent_dispatch.max_attempts : 3,
+      last_failure: "",
+      status: "active"
+    });
+  }
+}
+
+if (nextState === "done") {
+  state.loops = state.loops || [];
+  const activeLoop = state.loops.find((l) => l.status === "active");
+  if (activeLoop) {
+    activeLoop.status = "completed";
+  }
+}
+
+const runDir = path.dirname(statePath);
+const tokenUsagePath = path.join(runDir, "token-usage.csv");
+if (fs.existsSync(tokenUsagePath)) {
+  const tokenLines = fs.readFileSync(tokenUsagePath, "utf8").split(/\r?\n/).filter((l) => l.trim());
+  if (tokenLines.length <= 1) {
+    console.warn("⚠  No token usage recorded yet. Run scripts/record-token-usage.js before this transition.");
+  }
+} else {
+  console.warn("⚠  No token usage recorded yet. Run scripts/record-token-usage.js before this transition.");
+}
+
+if (nextState === "knowledge_improvement" || nextState === "waiting_for_final_review") {
+  const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+  const syncScript = path.join(__dirname, "sync-linear-knowledge.js");
+  if (LINEAR_API_KEY && fs.existsSync(syncScript)) {
+    try {
+      execSync(`node "${syncScript}" "${statePath}"`, {
+        cwd: path.resolve(__dirname, ".."),
+        encoding: "utf8",
+        stdio: "pipe",
+        timeout: 20000
+      });
+    } catch (e) {
+      console.warn(`  Knowledge sync to Linear had issues (non-blocking): ${(e.stderr || e.message || "").slice(0, 120)}`);
+    }
+  }
+}
+
 state.current_state = nextState;
 state.delivery.updated_at = now;
 state.log = state.log || [];

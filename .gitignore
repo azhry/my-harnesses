@@ -11,3 +11,4 @@ agent-spec-ops/runs/*/
 agent-spec-ops/history/
 agent-spec-ops/node_modules/
 notes.txt
+.session.json

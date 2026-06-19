@@ -74,6 +74,8 @@ function pathEquals(a, b) {
 
 const errors = [];
 
+const workspaceRoot = path.resolve(harnessRoot, "..");
+
 if (runDir && isWithin(runDir, resolvedTarget)) {
   console.log(`OK: ${targetPath} is within run directory (runs/${deliveryId}/)`);
   process.exit(0);
@@ -118,7 +120,7 @@ const tasks = (state.task_graph && state.task_graph.tasks) || [];
 for (const t of tasks) {
   if (t.scope && Array.isArray(t.scope.allowed_paths)) {
     for (const allowedPath of t.scope.allowed_paths) {
-      const resolvedAllowed = path.resolve(harnessRoot, "..", allowedPath);
+      const resolvedAllowed = path.resolve(workspaceRoot, allowedPath);
       if (isWithin(resolvedAllowed, resolvedTarget)) {
         taskScopes.push(t.id);
       }
@@ -131,5 +133,9 @@ if (taskScopes.length) {
   process.exit(0);
 }
 
-console.error(`DENIED: ${targetPath} is not within any approved write scope for role ${checkRole || "unknown"}. Agent output must go inside runs/${deliveryId || "<DELIVERY_ID>"}/.`);
+console.error(`DENIED: ${targetPath} is not within any approved write scope for role ${checkRole || "unknown"}.`);
+console.error(`  Your CWD appears to be: ${process.cwd()}`);
+console.error(`  Resolved target: ${resolvedTarget}`);
+console.error(`  Workspace root: ${workspaceRoot}`);
+console.error(`  Agent output must go inside runs/${deliveryId || "<DELIVERY_ID>"}/ or the project repo (e.g. ${path.join(workspaceRoot, "<repo>")}/).`);
 process.exit(1);

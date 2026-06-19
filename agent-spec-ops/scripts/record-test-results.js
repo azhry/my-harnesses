@@ -45,10 +45,22 @@ if (args.output) {
   const slug = args.taskId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "test";
   const outputPath = path.join(outputDir, `${slug}.log`);
   fs.writeFileSync(outputPath, args.output);
-  task.test.output_file = path.relative(path.dirname(statePath), outputPath);
+  task.test.output_file = path.relative(path.dirname(statePath), outputPath).replace(/\\/g, "/");
 
   const testOutputRef = `runs/${state.delivery && state.delivery.id ? state.delivery.id : path.basename(path.dirname(statePath))}/test-output/${slug}.log`;
   task.test.evidence.push(testOutputRef);
+}
+
+if (args.status === "passed") {
+  const allFailures = [...new Set([...(task.test.failures || []), ...args.failures])];
+  if (allFailures.length > 0) {
+    console.error(`Cannot mark ${args.taskId} as passed: ${allFailures.length} failure(s) exist`);
+    for (const f of allFailures) {
+      console.error(`  - ${f}`);
+    }
+    console.error("Resolve all failures before marking passed, or use --status failed");
+    process.exit(1);
+  }
 }
 
 const now = new Date().toISOString();

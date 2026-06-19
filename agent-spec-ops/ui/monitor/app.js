@@ -297,10 +297,13 @@ function tokenSummaryHtml(tokenUsage) {
   `;
 }
 
+const TASK_SORT_ORDER = { planned: 0, active: 1, implemented: 2, testing: 3, failed: 4, blocked: 5, verified: 6, waived: 7, not_applicable: 8 };
+
 function taskLanesHtml(tasks) {
   if (!tasks.length) return `<div class="blank">No tasks recorded</div>`;
   const lanes = ["product", "planning", "frontend", "backend", "integration", "handoff"];
-  const groups = lanes.map((lane) => [lane, tasks.filter((task) => (task.lane || laneForRole(task.role)) === lane)]);
+  const sorted = [...tasks].sort((a, b) => (TASK_SORT_ORDER[a.status] || 9) - (TASK_SORT_ORDER[b.status] || 9) || a.id.localeCompare(b.id));
+  const groups = lanes.map((lane) => [lane, sorted.filter((task) => (task.lane || laneForRole(task.role)) === lane)]);
   return `
     <div class="lane-board">
       ${groups.map(([lane, laneTasks]) => `

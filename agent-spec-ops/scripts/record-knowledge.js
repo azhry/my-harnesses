@@ -21,7 +21,7 @@ if (!args.stateFile || !args.statement) {
     "",
     "Options:",
     "  --status observed|candidate|promoted|active|deprecated",
-    "  --global",
+    "  --global          Store in global knowledge store (default: run directory)",
     "  --rationale TEXT",
     "  --confidence low|medium|high|unknown",
     "  --role ROLE        repeatable or comma-separated",

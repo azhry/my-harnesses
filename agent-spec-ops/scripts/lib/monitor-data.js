@@ -200,8 +200,8 @@ function summarizeGates(gates) {
 }
 
 function summarizeLoops(loops) {
-  const entries = Object.entries(loops).map(([name, loop]) => ({
-    name,
+  const entries = (Array.isArray(loops) ? loops : Object.entries(loops).map(([key, val]) => ({ ...val, name: val.name || key }))).map((loop) => ({
+    name: loop && loop.name ? loop.name : "unknown",
     status: loop && loop.status ? loop.status : "unknown",
     attempt: loop && Number.isInteger(loop.attempt) ? loop.attempt : 0,
     max_attempts: loop && Number.isInteger(loop.max_attempts) ? loop.max_attempts : 0,

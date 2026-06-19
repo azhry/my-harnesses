@@ -187,7 +187,11 @@ if (fs.existsSync(eventsPath)) {
   }
 }
 
-fs.writeFileSync(path.join(HARNESS_ROOT, ".session.json"), JSON.stringify({
+const markerDir = path.basename(path.dirname(runDir)) === "runs"
+  ? runDir
+  : path.join(HARNESS_ROOT, "runs", deliveryId);
+fs.mkdirSync(markerDir, { recursive: true });
+fs.writeFileSync(path.join(markerDir, ".session.json"), JSON.stringify({
   delivery_id: deliveryId,
   started_at: new Date().toISOString(),
   state: currentState,

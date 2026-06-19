@@ -240,6 +240,14 @@ failure descriptions, and links to output logs.
 When Linear is configured (via `LINEAR_API_KEY` env var), sync tasks, knowledge,
 and delivery status to Linear.
 
+Required environment variables:
+- `LINEAR_API_KEY` — Linear API key (or `LINEAR_ACCESS_TOKEN`)
+- `LINEAR_TEAM_ID` — Team ID for new issues
+
+Optional environment variables:
+- `LINEAR_PROJECT_ID` — Project ID for new issues (if unset, issues are created
+  in the team's default project)
+
 ### Sync task status to Linear
 
 ```bash
@@ -410,6 +418,23 @@ Do **not** use `scripts/transition.js` to jump from `implementation_in_progress`
 straight to `integration_verification` — this bypasses lane sub-states and will
 be rejected if dev tasks are unverified.
 
+### Knowledge Improvement Gate
+
+Starting from `integration_verification`, the state machine now requires a
+`knowledge_improvement` step before `waiting_for_final_review`:
+
+```
+integration_verification → knowledge_improvement → waiting_for_final_review
+```
+
+Transition to `knowledge_improvement` after integration checks pass. This state
+is the signal to promote reusable knowledge cards and sync knowledge to Linear.
+The `transition.js` script automatically syncs knowledge to Linear when entering
+`knowledge_improvement` or `waiting_for_final_review` (if `LINEAR_API_KEY` is set).
+
+After promoting knowledge and syncing to Linear, transition to
+`waiting_for_final_review`:
+
 ## Dev Git Lifecycle
 
 For every `frontend_dev` and `backend_dev` task:
@@ -428,6 +453,23 @@ Do not mark a dev task `verified` until `git_flow.local_tests_passed`,
 `git_flow.pushed`, `git_flow.merge_request_url`, and, when auto-merge is
 enabled, `git_flow.merged` are recorded.
 
+## Workspace Root
+
+The harness sits inside a workspace containing one or more project repos.
+The workspace root is the **parent directory** of the harness folder.
+
+If harness is at `agent-spec-ops/`, workspace root is `../` from it.
+**All code files for tasks go into the project repo under workspace root, NOT into the harness directory.**
+
+For example, with NLA-001 targeting `baby-math`:
+- Harness: `my-harnesses/agent-spec-ops/`
+- Workspace: `my-harnesses/`
+- Project: `my-harnesses/baby-math/`
+- Task file: `my-harnesses/baby-math/backend/Dockerfile`
+
+When writing files from the harness CWD, prefix paths with `../<repo>/`:
+`../baby-math/backend/Dockerfile` — not `baby-math/backend/Dockerfile`.
+
 ## Write Scope Enforcement
 
 Before writing any file, verify it is within your role's allowed write scope:
@@ -438,7 +480,7 @@ node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET
 
 The script exits 0 if allowed, 1 if denied. **Harness files are protected:**
 - `scripts/`, `tests/`, `ui/`, `AGENTS.md`, `package.json`, `harness.yaml` — only orchestrator may modify these.
-- Dev/test roles must write only to the project repo paths or `runs/<DELIVERY_ID>/`.
+- Dev/test roles must write only to the project repo paths (`../<repo>/`) or `runs/<DELIVERY_ID>/`.
 - PM/PM roles must write only to `runs/<DELIVERY_ID>/`.
 
 If a task requires modifying a harness script, route through the orchestrator
@@ -481,6 +523,45 @@ record the agent ID:
 ```bash
 node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <SPAWN_REQUEST_ID> <AGENT_ID>
 ```
+
+## Promoting Feedback as General Knowledge
+
+Human feedback, bug reports, feature requests, and design critiques contain
+reusable learning. When you receive significant human feedback (especially
+about harness behavior, architecture patterns, or process improvements):
+
+1. **Record as a knowledge card** with the feedback content, rationale, and
+   context:
+   ```bash
+   node scripts/record-knowledge.js runs/<DELIVERY_ID>/workflow-state.json \
+     --kind process_rule \
+     --status promoted \
+     --statement "Feedback: <summarized learning>" \
+     --rationale "<why this matters>" \
+     --tag feedback \
+     --tag "<delivery-id>" \
+     --evidence "human feedback from <source>"
+   ```
+   Knowledge is stored in the run directory by default. Use `--global` to
+   store in the shared `knowledge/cards/` store for cross-run availability.
+
+2. **Update AGENTS.md** if the feedback changes how agents should operate
+   (but only the orchestrator may modify AGENTS.md — see Write Scope
+   Enforcement).
+
+3. **Sync to Linear** so the next session context recovery picks it up:
+   ```bash
+   node scripts/sync-linear-knowledge.js runs/<DELIVERY_ID>/workflow-state.json
+   ```
+
+Reusable knowledge types to promote:
+- **Process fixes**: "Always check X before Y" or "Never skip Z step"
+- **Tooling patterns**: "The backend needs WSL for Docker" or "Use npm not yarn"
+- **Domain nuances**: "The client prefers REST over GraphQL" or "PIN must be numeric"
+- **Harness improvements**: Feedback that becomes a script or state machine change
+
+Do not promote one-off observations, transient debug info, or obvious
+common sense as knowledge cards.
 
 ## Stop Conditions
 

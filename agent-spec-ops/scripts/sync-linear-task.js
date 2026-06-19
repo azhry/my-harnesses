@@ -19,8 +19,11 @@ if (!args.stateFile) {
   process.exit(1);
 }
 
+// Required: LINEAR_API_KEY, LINEAR_TEAM_ID
+// Optional: LINEAR_PROJECT_ID — if set, new issues are created under this project
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
 const LINEAR_TEAM_ID = process.env.LINEAR_TEAM_ID || "";
+const LINEAR_PROJECT_ID = process.env.LINEAR_PROJECT_ID || "";
 const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 const statePath = path.resolve(args.stateFile);
@@ -51,7 +54,12 @@ if (!targetTasks.length) {
 
 let synced = 0;
 let errors = 0;
+let stateIdCache = null;
 
+(async () => {
+if (LINEAR_TEAM_ID) {
+  stateIdCache = await resolveWorkflowStates(LINEAR_TEAM_ID);
+}
 for (const task of targetTasks) {
   const linearId = task.linear_id || "";
   const title = `[${deliveryId}] ${task.title || task.id}`;
@@ -60,13 +68,24 @@ for (const task of targetTasks) {
     `**Task:** ${task.id}`,
     `**Role:** ${task.role}`,
     `**Status:** ${task.status}`,
+    ``,
     `**Description:** ${task.description || "—"}`,
     ``,
     `### Definition of Done`,
     ...(Array.isArray(task.definition_of_done) && task.definition_of_done.length ? task.definition_of_done.map((d) => `- ${d}`) : ["- Not defined"]),
     ``,
-    `### Verification`,
+    `### Acceptance Criteria / Verification`,
     ...(Array.isArray(task.verification) && task.verification.length ? task.verification.map((v) => `- ${v}`) : ["- Not defined"]),
+    ``,
+    `### Expected Changes`,
+    ...(Array.isArray(task.expected_changes) && task.expected_changes.length ? task.expected_changes.map((c) => `- \`${c}\``) : ["- Not specified"]),
+    ``,
+    `### Scope`,
+    ...(task.scope ? [
+      `- Paths: ${Array.isArray(task.scope.allowed_paths) && task.scope.allowed_paths.length ? task.scope.allowed_paths.join(", ") : "not restricted"}`,
+      `- Repos: ${Array.isArray(task.scope.allowed_repos) && task.scope.allowed_repos.length ? task.scope.allowed_repos.join(", ") : "not restricted"}`,
+      `- Services: ${Array.isArray(task.scope.allowed_services) && task.scope.allowed_services.length ? task.scope.allowed_services.join(", ") : "not restricted"}`
+    ] : ["- Not defined"]),
     ``,
     `### Dependencies`,
     ...(Array.isArray(task.depends_on) && task.depends_on.length ? task.depends_on.map((d) => `- ${d}`) : ["- None"]),
@@ -74,22 +93,24 @@ for (const task of targetTasks) {
 
   if (linearId) {
     // Update existing Linear issue
-    const status = linearStatusFor(task.status);
+    const targetStatus = linearStatusFor(task.status);
+    const stateId = stateIdCache ? stateIdCache[targetStatus] : "";
+    const stateInput = stateId ? `, stateId: "${stateId}"` : "";
     const mutation = {
-      query: `mutation { issueUpdate(id: "${linearId}", input: { title: ${JSON.stringify(title)}, description: ${JSON.stringify(description)}, stateId: "${status}" }) { success } }`
+      query: `mutation { issueUpdate(id: "${linearId}", input: { title: ${JSON.stringify(title)}, description: ${JSON.stringify(description)}${stateInput} }) { success } }`
     };
     if (args.dryRun) {
-      console.log(`[DRY RUN] Would update Linear issue ${linearId}: ${task.id} -> ${task.status} (state: ${status})`);
+      console.log(`[DRY RUN] Would update Linear issue ${linearId}: ${task.id} -> ${task.status} (${targetStatus})`);
       synced++;
       continue;
     }
     try {
-      const result = graphql(mutation);
+      const result = await graphql(mutation);
       if (result.errors) {
         console.error(`Linear API error for ${task.id}: ${result.errors[0].message}`);
         errors++;
       } else {
-        console.log(`Updated Linear issue ${linearId} for ${task.id} -> ${task.status}`);
+        console.log(`Updated Linear issue ${linearId} for ${task.id} -> ${task.status}${stateId ? ` [state: ${targetStatus}]` : ""}`);
         synced++;
       }
     } catch (err) {
@@ -98,8 +119,12 @@ for (const task of targetTasks) {
     }
   } else if (args.create) {
     // Create new Linear issue
+    const projectInput = LINEAR_PROJECT_ID ? `, projectId: "${LINEAR_PROJECT_ID}"` : "";
+    const initialStatus = linearStatusFor(task.status);
+    const createStateId = stateIdCache ? stateIdCache[initialStatus] : "";
+    const stateInput = createStateId ? `, stateId: "${createStateId}"` : "";
     const mutation = {
-      query: `mutation { issueCreate(input: { teamId: "${LINEAR_TEAM_ID}", title: ${JSON.stringify(title)}, description: ${JSON.stringify(description)} }) { success issue { id } } }`
+      query: `mutation { issueCreate(input: { teamId: "${LINEAR_TEAM_ID}", title: ${JSON.stringify(title)}, description: ${JSON.stringify(description)}${projectInput}${stateInput} }) { success issue { id } } }`
     };
     if (args.dryRun) {
       console.log(`[DRY RUN] Would create Linear issue for ${task.id}`);
@@ -107,7 +132,7 @@ for (const task of targetTasks) {
       continue;
     }
     try {
-      const result = graphql(mutation);
+      const result = await graphql(mutation);
       if (result.errors) {
         console.error(`Linear API error creating issue for ${task.id}: ${result.errors[0].message}`);
         errors++;
@@ -129,6 +154,7 @@ for (const task of targetTasks) {
     console.log(`SKIP ${task.id}: no linear_id and --create not set`);
   }
 }
+})();
 
 appendEvent(statePath, {
   type: "linear_sync",
@@ -158,6 +184,39 @@ function linearStatusFor(taskStatus) {
   return statusMap[taskStatus] || "backlog";
 }
 
+async function resolveWorkflowStates(teamId) {
+  const query = {
+    query: `query { team(id: "${teamId}") { states { nodes { id name type } } } }`
+  };
+  try {
+    const result = await graphql(query);
+    const nodes = result.data && result.data.team && result.data.team.states && result.data.team.states.nodes;
+    if (!Array.isArray(nodes)) return null;
+    const map = {};
+    for (const state of nodes) {
+      const type = (state.type || "").toLowerCase();
+      const name = (state.name || "").toLowerCase();
+      if (type === "backlog") map.backlog = state.id;
+      if (type === "unstarted") map.unstarted = state.id;
+      if (type === "started") map.started = state.id;
+      if (type === "review") map.review = state.id;
+      if (type === "completed") map.completed = state.id;
+      if (type === "canceled") map.canceled = state.id;
+      if (name === "blocked") map.blocked = state.id;
+    }
+    return {
+      backlog: map.backlog || map.unstarted || "",
+      inProgress: map.started || map.backlog || "",
+      inReview: map.review || map.started || "",
+      done: map.completed || "",
+      canceled: map.canceled || "",
+      blocked: map.blocked || map.backlog || ""
+    };
+  } catch {
+    return null;
+  }
+}
+
 function graphql(body) {
   const url = new URL(GRAPHQL_URL);
   const options = {
@@ -166,7 +225,7 @@ function graphql(body) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${LINEAR_API_KEY}`
+      Authorization: `${LINEAR_API_KEY}`
     }
   };
   return new Promise((resolve, reject) => {

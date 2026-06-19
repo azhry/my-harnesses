@@ -10,7 +10,7 @@ const {
   roleNames
 } = require("./lib/state-machine");
 const { execSync } = require("child_process");
-const { appendEvent } = require("./lib/memory-store");
+const { appendEvent, appendTokenUsageRow } = require("./lib/memory-store");
 const { checkContext } = require("./lib/context-check");
 
 const ALLOWED_TRANSITIONS = {
@@ -218,6 +218,20 @@ state.log.push({
 });
 
 fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+
+appendTokenUsageRow(statePath, {
+  scope: "task",
+  role: task.role,
+  task_id: taskId,
+  loop: task.loop ? task.loop.name || `${state.loops ? state.loops.length : 0}` : "",
+  input_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  total_cost_usd: 0,
+  cost_basis: "unknown",
+  notes: `Transition step: ${currentStatus} -> ${nextStatus}`
+});
+
 console.log(`OK: ${taskId} ${currentStatus} -> ${nextStatus}`);
 
 const eventType = {
@@ -239,6 +253,21 @@ appendEvent(statePath, {
   severity: nextStatus === "failed" || nextStatus === "blocked" ? "warning" : "info",
   tags: ["task_transition", taskId, nextStatus]
 });
+
+const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+if (task.linear_id && LINEAR_API_KEY) {
+  setTimeout(() => {
+    try {
+      const syncScript = path.join(__dirname, "sync-linear-task.js");
+      execSync(`node "${syncScript}" "${statePath}" --task ${taskId}`, {
+        cwd: path.resolve(__dirname, ".."),
+        encoding: "utf8",
+        stdio: "ignore",
+        timeout: 10000
+      });
+    } catch {}
+  }, 100);
+}
 
 function laneStateForTask(task, allTasks) {
   const role = task.role;

@@ -1,0 +1,12 @@
+{
+  "provider": {
+    "mode": "local",
+    "external_provider": "",
+    "sync_status": "local_only",
+    "last_synced_at": "",
+    "evidence": []
+  },
+  "delivery_id": "",
+  "updated_at": "",
+  "tasks": []
+}

@@ -4,3 +4,9 @@ workspace/*/
 
 # Infrastructure credentials and resource identifiers
 agent-kube-ops/docs/infrastructure.md
+
+# agent-spec-ops run data and history
+agent-spec-ops/runs/*/
+!agent-spec-ops/runs/.gitkeep
+agent-spec-ops/history/
+agent-spec-ops/node_modules/

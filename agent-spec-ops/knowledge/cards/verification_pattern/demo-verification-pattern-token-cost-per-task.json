@@ -1,0 +1,32 @@
+{
+  "id": "demo-verification-pattern-token-cost-per-task",
+  "kind": "verification_pattern",
+  "status": "active",
+  "statement": "Record token usage at run, task, and eval scope so future runs can compare planning cost against verification cost.",
+  "rationale": "Demo knowledge from token usage ledger.",
+  "applies_to": {
+    "roles": [
+      "orchestrator"
+    ],
+    "components": [],
+    "repos": [],
+    "services": [],
+    "tasks": [],
+    "tags": [
+      "tokens",
+      "eval"
+    ]
+  },
+  "confidence": "medium",
+  "source_event_ids": [],
+  "evidence": [
+    "history/token-usage.csv"
+  ],
+  "usage_count": 0,
+  "created_at": "2026-06-18T22:56:16.562Z",
+  "updated_at": "2026-06-18T22:56:16.562Z",
+  "promoted_at": "2026-06-18T22:56:16.562Z",
+  "deprecated_at": "",
+  "supersedes": [],
+  "superseded_by": ""
+}

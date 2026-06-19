@@ -1,0 +1,430 @@
+{
+  "harness": {
+    "name": "agent-spec-ops",
+    "version": "0.1.0"
+  },
+  "current_state": "intake",
+  "delivery": {
+    "id": "",
+    "title": "",
+    "request_summary": "",
+    "source_links": [],
+    "target_users": [],
+    "requested_by": "",
+    "created_at": "",
+    "updated_at": ""
+  },
+  "roles": {
+    "product_manager": {
+      "status": "not_started",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "project_manager": {
+      "status": "not_started",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "frontend_dev": {
+      "status": "not_started",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "frontend_test": {
+      "status": "not_started",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "backend_dev": {
+      "status": "not_started",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "backend_test": {
+      "status": "not_started",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "orchestrator": {
+      "status": "in_progress",
+      "current_task_id": "",
+      "artifacts": [],
+      "evidence": [],
+      "blockers": []
+    }
+  },
+  "tool_readiness": {
+    "status": "not_started",
+    "checked_at": "",
+    "choices": {
+      "product_tracker": "",
+      "code_host": ""
+    },
+    "capabilities": [
+      {
+        "name": "product_tracker",
+        "provider": "",
+        "required": true,
+        "status": "unknown",
+        "verification": "",
+        "evidence": [],
+        "blocker": ""
+      },
+      {
+        "name": "code_host",
+        "provider": "",
+        "required": true,
+        "status": "unknown",
+        "verification": "",
+        "evidence": [],
+        "blocker": ""
+      }
+    ],
+    "frontend": {
+      "status": "unknown",
+      "commands": [],
+      "evidence": [],
+      "blockers": []
+    },
+    "backend": {
+      "status": "unknown",
+      "commands": [],
+      "evidence": [],
+      "blockers": []
+    }
+  },
+  "knowledge": {
+    "status": "not_started",
+    "budgets": {
+      "max_queries_per_source": 8,
+      "max_source_documents": 20,
+      "max_repo_files_per_service": 30,
+      "max_unresolved_gaps": 5
+    },
+    "queries": [],
+    "sources": [],
+    "findings": [],
+    "claims": [],
+    "gaps": []
+  },
+  "artifacts": {
+    "product_requirements": {
+      "status": "not_started",
+      "path": "",
+      "url": "",
+      "content_hash": "",
+      "evidence": []
+    },
+    "stitch_prompt": {
+      "status": "not_started",
+      "path": "",
+      "url": "",
+      "content_hash": "",
+      "evidence": []
+    },
+    "system_rules": {
+      "status": "not_started",
+      "path": "",
+      "url": "",
+      "content_hash": "",
+      "evidence": []
+    },
+    "task_breakdown": {
+      "status": "not_started",
+      "path": "",
+      "url": "",
+      "content_hash": "",
+      "evidence": []
+    },
+    "handoff_report": {
+      "status": "not_started",
+      "path": "",
+      "url": "",
+      "content_hash": "",
+      "evidence": []
+    }
+  },
+  "task_graph": {
+    "status": "not_started",
+    "dependencies_checked": false,
+    "frontend_required": true,
+    "backend_required": true,
+    "tasks": []
+  },
+  "contracts": {
+    "status": "not_started",
+    "interfaces": []
+  },
+  "implementation": {
+    "status": "not_started",
+    "git_policy": {
+      "base_branch": "main",
+      "target_branch": "main",
+      "branch_name_pattern": "delivery/<DELIVERY_ID>/<TASK_ID>",
+      "push_after_tests_pass": true,
+      "merge_request_required": true,
+      "auto_merge_default": true,
+      "auto_merge_requires_checks": true,
+      "auto_merge_disabled_reason": "",
+      "evidence": []
+    },
+    "approved_scope": {
+      "status": "not_started",
+      "task_ids": [],
+      "repos": [],
+      "services": [],
+      "paths": [],
+      "api_contracts": [],
+      "approved_at": "",
+      "approved_by": "",
+      "evidence": []
+    },
+    "actual_changes": [],
+    "scope_checks": []
+  },
+  "agent_dispatch": {
+    "mode": "single_agent",
+    "auto_spawn": false,
+    "parallel_allowed": true,
+    "max_parallel_agents": 2,
+    "status": "not_started",
+    "planned_at": "",
+    "spawn_requests": [],
+    "leases": [],
+    "history": []
+  },
+  "loops": {
+    "product": {
+      "status": "not_started",
+      "attempt": 0,
+      "max_attempts": 3,
+      "last_failure": "",
+      "history": []
+    },
+    "planning": {
+      "status": "not_started",
+      "attempt": 0,
+      "max_attempts": 3,
+      "last_failure": "",
+      "history": []
+    },
+    "frontend_dev_test": {
+      "status": "not_started",
+      "attempt": 0,
+      "max_attempts": 3,
+      "last_failure": "",
+      "history": []
+    },
+    "backend_dev_test": {
+      "status": "not_started",
+      "attempt": 0,
+      "max_attempts": 3,
+      "last_failure": "",
+      "history": []
+    },
+    "integration": {
+      "status": "not_started",
+      "attempt": 0,
+      "max_attempts": 3,
+      "last_failure": "",
+      "history": []
+    },
+    "knowledge_improvement": {
+      "status": "not_started",
+      "attempt": 0,
+      "max_attempts": 1,
+      "last_failure": "",
+      "history": []
+    }
+  },
+  "integration": {
+    "status": "not_started",
+    "contract_checks": [],
+    "scope_checks": [],
+    "acceptance_mapping": [],
+    "evidence": [],
+    "blockers": []
+  },
+  "gates": {
+    "product_review": {
+      "status": "not_ready",
+      "approver": "",
+      "approval_note": "",
+      "decided_at": "",
+      "evidence": []
+    },
+    "delivery_plan_review": {
+      "status": "not_ready",
+      "approver": "",
+      "approval_note": "",
+      "decided_at": "",
+      "evidence": []
+    },
+    "final_review": {
+      "status": "not_ready",
+      "approver": "",
+      "approval_note": "",
+      "decided_at": "",
+      "evidence": []
+    }
+  },
+  "human_instructions": {
+    "product_review": {
+      "status": "not_prepared",
+      "audience": [],
+      "instructions": "",
+      "decision_options": [
+        "approve",
+        "approve_with_notes",
+        "request_changes",
+        "block"
+      ],
+      "questions": [],
+      "evidence": []
+    },
+    "delivery_plan_review": {
+      "status": "not_prepared",
+      "audience": [],
+      "instructions": "",
+      "decision_options": [
+        "approve",
+        "approve_with_notes",
+        "request_changes",
+        "block"
+      ],
+      "questions": [],
+      "evidence": []
+    },
+    "final_review": {
+      "status": "not_prepared",
+      "audience": [],
+      "instructions": "",
+      "decision_options": [
+        "approve",
+        "approve_with_followups",
+        "request_rework",
+        "block"
+      ],
+      "questions": [],
+      "evidence": []
+    }
+  },
+  "observability": {
+    "task_trace": [],
+    "verification_records": [],
+    "diagnostic_log": []
+  },
+  "memory": {
+    "status": "not_started",
+    "events_path": "events.ndjson",
+    "local_tasks_path": "tasks.json",
+    "evals_csv_path": "evals.csv",
+    "remarks_csv_path": "remarks.csv",
+    "token_usage_csv_path": "token-usage.csv",
+    "knowledge_dirs": [
+      "knowledge/candidates",
+      "knowledge/promoted"
+    ],
+    "local_task_provider": {
+      "enabled": true,
+      "mode": "local",
+      "reason": "Local task storage is always available and used when Linear/Jira is unavailable.",
+      "external_provider": "",
+      "sync_status": "local_only",
+      "last_synced_at": "",
+      "path": "tasks.json"
+    },
+    "last_event_id": "",
+    "event_count": 0,
+    "last_eval_at": "",
+    "last_remark_at": "",
+    "last_knowledge_query_at": "",
+    "token_totals": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cached_input_tokens": 0,
+      "reasoning_tokens": 0,
+      "total_tokens": 0,
+      "total_cost_usd": 0,
+      "currency": "USD",
+      "last_recorded_at": ""
+    },
+    "evidence": []
+  },
+  "clean_state": {
+    "state_validated": {
+      "status": "unknown",
+      "evidence": ""
+    },
+    "tasks_closed": {
+      "status": "unknown",
+      "evidence": ""
+    },
+    "verification_complete": {
+      "status": "unknown",
+      "evidence": ""
+    },
+    "handoff_complete": {
+      "status": "unknown",
+      "evidence": ""
+    }
+  },
+  "evaluation": {
+    "status": "not_started",
+    "completed_at": "",
+    "scorecard": {
+      "knowledge_quality": {
+        "score": null,
+        "max": 2,
+        "evidence": [],
+        "notes": ""
+      },
+      "product_quality": {
+        "score": null,
+        "max": 2,
+        "evidence": [],
+        "notes": ""
+      },
+      "task_quality": {
+        "score": null,
+        "max": 2,
+        "evidence": [],
+        "notes": ""
+      },
+      "implementation_alignment": {
+        "score": null,
+        "max": 2,
+        "evidence": [],
+        "notes": ""
+      },
+      "verification": {
+        "score": null,
+        "max": 2,
+        "evidence": [],
+        "notes": ""
+      },
+      "state_hygiene": {
+        "score": null,
+        "max": 2,
+        "evidence": [],
+        "notes": ""
+      }
+    },
+    "total_score": null,
+    "max_score": 12,
+    "improvement_actions": []
+  },
+  "log": []
+}

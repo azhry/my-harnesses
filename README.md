@@ -9,6 +9,7 @@ and feedback.
 | Harness | Purpose |
 |---------|---------|
 | agent-kube-ops | Deploy apps from a remote git repo to EKS — 4-gate pipeline: tools → permissions → deploy → healthcheck |
+| agent-spec-ops | Spec-to-delivery lifecycle with 7 roles, 24 states, 3 human gates, and knowledge memory |
 
 ## Usage
 

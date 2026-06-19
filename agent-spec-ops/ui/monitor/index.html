@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Harness Observatory</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="masthead">
+        <div class="identity">
+          <span class="wordmark" aria-hidden="true">SD</span>
+          <div>
+            <p class="overline">Spec To Delivery</p>
+            <h1>Harness Observatory</h1>
+          </div>
+        </div>
+        <div class="toolbar">
+          <span id="lastUpdated" class="timestamp">Loading</span>
+          <button id="refreshButton" class="refresh-button" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <section class="signals-section" aria-labelledby="signalsTitle">
+        <div class="section-head">
+          <h2 id="signalsTitle">Run Signals</h2>
+          <button class="section-help" type="button" aria-label="Run Signals usage" data-tooltip="Use these totals to scan overall harness health across all runs: active work, blockers, tasks, memory events, knowledge, token volume, and cost.">?</button>
+        </div>
+        <div id="summaryGrid" class="signal-strip" aria-label="Run signals"></div>
+      </section>
+
+      <main class="monitor-frame">
+        <aside class="run-stack" aria-label="Run stack">
+          <div class="stack-head">
+            <div class="stack-title-row">
+              <h2>Run Stack</h2>
+              <button class="section-help" type="button" aria-label="Run Stack usage" data-tooltip="Use this list to choose a run, filter by id, title, or state, and compare which deliveries need attention first.">?</button>
+            </div>
+            <input id="runFilter" class="run-filter" type="search" placeholder="Filter id, title, state">
+          </div>
+          <div id="runList" class="stack-list"></div>
+        </aside>
+
+        <section class="run-workspace" aria-label="Run workspace">
+          <div id="runDetail"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

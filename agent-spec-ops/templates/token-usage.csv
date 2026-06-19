@@ -1,0 +1,1 @@
+at,delivery_id,scope,role,task_id,eval_id,loop,provider,model,input_tokens,output_tokens,cached_input_tokens,reasoning_tokens,total_tokens,input_cost_usd,output_cost_usd,cached_input_cost_usd,reasoning_cost_usd,total_cost_usd,currency,cost_basis,source,evidence,notes

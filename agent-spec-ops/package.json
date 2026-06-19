@@ -1,0 +1,29 @@
+{
+  "name": "agent-spec-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateful multi-role harness for product/spec to delivery workflows.",
+  "scripts": {
+    "new": "node scripts/new-delivery.js",
+    "readiness": "node scripts/check-tool-readiness.js",
+    "check:contracts": "node scripts/check-contracts.js",
+    "check:scope": "node scripts/check-scope.js",
+    "dispatch": "node scripts/plan-agent-dispatch.js",
+    "record:event": "node scripts/record-event.js",
+    "record:knowledge": "node scripts/record-knowledge.js",
+    "promote:knowledge": "node scripts/promote-knowledge.js",
+    "query:knowledge": "node scripts/query-knowledge.js",
+    "record:eval": "node scripts/record-eval.js",
+    "record:remark": "node scripts/record-remark.js",
+    "record:tokens": "node scripts/record-token-usage.js",
+    "task:local": "node scripts/update-local-task.js",
+    "monitor": "node scripts/monitor-runs.js",
+    "transition": "node scripts/transition.js",
+    "validate": "node scripts/validate-harness.js",
+    "validate:state": "node scripts/validate-state.js",
+    "check": "node --check scripts/new-delivery.js && node --check scripts/check-tool-readiness.js && node --check scripts/check-contracts.js && node --check scripts/check-scope.js && node --check scripts/plan-agent-dispatch.js && node --check scripts/record-agent-spawn.js && node --check scripts/record-event.js && node --check scripts/record-knowledge.js && node --check scripts/promote-knowledge.js && node --check scripts/query-knowledge.js && node --check scripts/record-eval.js && node --check scripts/record-remark.js && node --check scripts/record-token-usage.js && node --check scripts/update-local-task.js && node --check scripts/monitor-runs.js && node --check scripts/transition.js && node --check scripts/validate-state.js && node --check scripts/validate-harness.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

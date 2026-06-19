@@ -12,7 +12,7 @@
     "target_users": [],
     "requested_by": "",
     "created_at": "",
-    "updated_at": ""
+    "updated_at": "2026-06-19T02:17:00.498Z"
   },
   "roles": {
     "product_manager": {
@@ -58,7 +58,7 @@
       "blockers": []
     },
     "orchestrator": {
-      "status": "in_progress",
+      "status": "not_started",
       "current_task_id": "",
       "artifacts": [],
       "evidence": [],
@@ -128,6 +128,13 @@
       "evidence": []
     },
     "stitch_prompt": {
+      "status": "not_started",
+      "path": "",
+      "url": "",
+      "content_hash": "",
+      "evidence": []
+    },
+    "design_assets": {
       "status": "not_started",
       "path": "",
       "url": "",
@@ -258,6 +265,13 @@
     "blockers": []
   },
   "gates": {
+    "tool_readiness_review": {
+      "status": "not_ready",
+      "approver": "",
+      "approval_note": "",
+      "decided_at": "",
+      "evidence": []
+    },
     "product_review": {
       "status": "not_ready",
       "approver": "",
@@ -281,6 +295,19 @@
     }
   },
   "human_instructions": {
+    "tool_readiness_review": {
+      "status": "not_prepared",
+      "audience": [],
+      "instructions": "",
+      "decision_options": [
+        "approve",
+        "approve_with_notes",
+        "request_changes",
+        "block"
+      ],
+      "questions": [],
+      "evidence": []
+    },
     "product_review": {
       "status": "not_prepared",
       "audience": [],
@@ -426,5 +453,21 @@
     "max_score": 12,
     "improvement_actions": []
   },
-  "log": []
+  "log": [
+    {
+      "at": "2026-06-19T02:16:50.231Z",
+      "state": "tool_readiness",
+      "note": "Start tool readiness"
+    },
+    {
+      "at": "2026-06-19T02:16:55.814Z",
+      "state": "waiting_for_tool_readiness_review",
+      "note": "Ready, awaiting human approval"
+    },
+    {
+      "at": "2026-06-19T02:17:00.498Z",
+      "state": "tool_readiness_revision",
+      "note": "Need to re-check docker"
+    }
+  ]
 }

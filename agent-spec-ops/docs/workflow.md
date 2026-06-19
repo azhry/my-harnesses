@@ -9,11 +9,15 @@ implemented and verified frontend/backend delivery work.
 stateDiagram-v2
   [*] --> intake
   intake --> tool_readiness
-  intake --> knowledge_discovery
-  tool_readiness --> knowledge_discovery
+  tool_readiness --> waiting_for_tool_readiness_review
+  waiting_for_tool_readiness_review --> knowledge_discovery
+  waiting_for_tool_readiness_review --> tool_readiness_revision
+  tool_readiness_revision --> tool_readiness
   knowledge_discovery --> product_requirements
   product_requirements --> ui_design_prompt
-  ui_design_prompt --> system_rules
+  ui_design_prompt --> waiting_for_design_stitch
+  waiting_for_design_stitch --> design_assembly
+  design_assembly --> system_rules
   system_rules --> waiting_for_product_review
   waiting_for_product_review --> product_approved
   waiting_for_product_review --> product_revision
@@ -40,6 +44,7 @@ stateDiagram-v2
   waiting_for_final_review --> implementation_in_progress
   intake --> blocked
   tool_readiness --> blocked
+  waiting_for_tool_readiness_review --> blocked
   knowledge_discovery --> blocked
   product_requirements --> blocked
   task_breakdown --> blocked
@@ -57,9 +62,13 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | `intake` | Orchestrator | Normalize raw request, source links, target outcome | `delivery.id`, `delivery.title`, intake log |
 | `tool_readiness` | Orchestrator | Choose and verify tracker, code host, frontend tooling, backend tooling | `tool_readiness` evidence |
+| `waiting_for_tool_readiness_review` | Human | Approve or revise tool readiness before proceeding | Tool readiness gate decision |
+| `tool_readiness_revision` | Orchestrator | Re-run readiness checks after human revision request | Updated tool readiness evidence |
 | `knowledge_discovery` | Orchestrator | Find and verify relevant product, design, system, repo, and verification knowledge | `knowledge.findings[]` or `knowledge.gaps[]` |
 | `product_requirements` | Product Manager | Write product requirements, acceptance criteria, open questions | Product artifact draft |
 | `ui_design_prompt` | Product Manager | Write Google Stitch prompt grounded in requirements | Stitch prompt draft |
+| `waiting_for_design_stitch` | Human | Take the Stitch prompt to Google Stitch, generate screens, return with project ID | Stitch project ID recorded in gate approval_note |
+| `design_assembly` | Product Manager | Record Stitch design assets to `runs/<ID>/design-assets/` based on returned project ID | Design assets artifact |
 | `system_rules` | Product Manager | Derive UI behavior, business rules, API implications | System rules draft |
 | `waiting_for_product_review` | Human | Approve or revise product artifacts | Product gate decision |
 | `product_revision` | Product Manager | Revise requirements/rules after review | Updated artifact evidence |

@@ -71,6 +71,17 @@ function route(request, response) {
     return;
   }
 
+  if (url.pathname.startsWith("/files/")) {
+    const filePath = url.pathname.replace("/files/", "");
+    const resolved = path.resolve(root, filePath);
+    if (!resolved.startsWith(root) || !fs.existsSync(resolved)) {
+      sendJson(response, 404, { error: "File not found" });
+      return;
+    }
+    sendFile(response, resolved);
+    return;
+  }
+
   sendJson(response, 404, {
     error: "Not found"
   });

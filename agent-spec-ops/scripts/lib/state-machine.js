@@ -3,9 +3,13 @@
 const states = [
   "intake",
   "tool_readiness",
+  "waiting_for_tool_readiness_review",
+  "tool_readiness_revision",
   "knowledge_discovery",
   "product_requirements",
   "ui_design_prompt",
+  "waiting_for_design_stitch",
+  "design_assembly",
   "system_rules",
   "waiting_for_product_review",
   "product_revision",
@@ -28,11 +32,15 @@ const states = [
 ];
 
 const transitions = {
-  intake: ["tool_readiness", "knowledge_discovery", "blocked"],
-  tool_readiness: ["knowledge_discovery", "blocked"],
+  intake: ["tool_readiness", "blocked"],
+  tool_readiness: ["waiting_for_tool_readiness_review", "blocked"],
+  waiting_for_tool_readiness_review: ["knowledge_discovery", "tool_readiness_revision", "blocked"],
+  tool_readiness_revision: ["tool_readiness", "blocked"],
   knowledge_discovery: ["product_requirements", "blocked"],
   product_requirements: ["ui_design_prompt", "blocked"],
-  ui_design_prompt: ["system_rules", "blocked"],
+  ui_design_prompt: ["waiting_for_design_stitch", "blocked"],
+  waiting_for_design_stitch: ["design_assembly", "blocked"],
+  design_assembly: ["system_rules", "blocked"],
   system_rules: ["waiting_for_product_review", "blocked"],
   waiting_for_product_review: ["product_approved", "product_revision", "blocked"],
   product_revision: ["product_requirements", "blocked"],
@@ -48,10 +56,10 @@ const transitions = {
   backend_dev: ["backend_test", "implementation_in_progress", "blocked"],
   backend_test: ["backend_dev", "backend_verified", "blocked"],
   backend_verified: ["implementation_in_progress", "integration_verification", "blocked"],
-  integration_verification: ["waiting_for_final_review", "implementation_in_progress", "task_breakdown", "blocked"],
-  waiting_for_final_review: ["done", "implementation_in_progress", "product_requirements", "blocked"],
+  integration_verification: ["waiting_for_final_review", "implementation_in_progress", "blocked"],
+  waiting_for_final_review: ["done", "implementation_in_progress", "blocked"],
   done: [],
-  blocked: ["intake", "tool_readiness", "knowledge_discovery", "product_requirements", "task_breakdown", "implementation_in_progress"]
+  blocked: ["intake", "tool_readiness", "waiting_for_tool_readiness_review", "knowledge_discovery", "product_requirements", "task_breakdown", "implementation_in_progress"]
 };
 
 const roleNames = [

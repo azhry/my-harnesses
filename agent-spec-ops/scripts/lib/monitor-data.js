@@ -126,10 +126,10 @@ function buildRunView(id, state, localTasks, events, evals, remarks, tokenUsage)
   const graphTasks = state.task_graph && Array.isArray(state.task_graph.tasks)
     ? state.task_graph.tasks
     : [];
-  const fallbackTasks = localTasks && Array.isArray(localTasks.tasks)
+  const localTaskList = localTasks && Array.isArray(localTasks.tasks)
     ? localTasks.tasks
     : [];
-  const tasks = graphTasks.length ? graphTasks : fallbackTasks;
+  const tasks = mergeTasks(graphTasks, localTaskList);
   const gates = state.gates || {};
   const loops = state.loops || {};
   const contracts = state.contracts && Array.isArray(state.contracts.interfaces)
@@ -147,6 +147,7 @@ function buildRunView(id, state, localTasks, events, evals, remarks, tokenUsage)
     requested_by: state.delivery && state.delivery.requested_by ? state.delivery.requested_by : "",
     request_summary: state.delivery && state.delivery.request_summary ? state.delivery.request_summary : "",
     state_error: state.error || "",
+    artifacts: (state.artifacts || {}),
     tool_readiness: summarizeReadiness(state.tool_readiness),
     roles: state.roles || {},
     gates: summarizeGates(gates),
@@ -184,7 +185,9 @@ function summarizeGates(gates) {
     status: gate && gate.status ? gate.status : "unknown",
     approver: gate && gate.approver ? gate.approver : "",
     decided_at: gate && gate.decided_at ? gate.decided_at : "",
-    evidence_count: gate && Array.isArray(gate.evidence) ? gate.evidence.length : 0
+    approval_note: gate && gate.approval_note ? gate.approval_note : "",
+    evidence_count: gate && Array.isArray(gate.evidence) ? gate.evidence.length : 0,
+    evidence: gate && Array.isArray(gate.evidence) ? gate.evidence : []
   }));
   return {
     entries,
@@ -215,12 +218,15 @@ function summarizeTasks(tasks, tokenUsage) {
   const entries = tasks.map((task) => ({
     id: task.id || "",
     title: task.title || "",
+    linear_id: task.linear_id || "",
     role: task.role || "",
     lane: task.lane || laneForRole(task.role || ""),
     status: task.status || "unknown",
+    description: task.description || "",
     depends_on: Array.isArray(task.depends_on) ? task.depends_on : [],
     knowledge_refs: Array.isArray(task.knowledge_refs) ? task.knowledge_refs : [],
     evidence_count: evidenceCount(task),
+    evidence_items: collectEvidence(task),
     git: summarizeGit(task.git_flow || {}),
     token_usage: summarizeTokenUsage(tokenUsage.filter((row) => row.task_id === task.id))
   }));
@@ -235,6 +241,17 @@ function summarizeTasks(tasks, tokenUsage) {
     by_role: countBy(entries, "role"),
     by_lane: countBy(entries, "lane")
   };
+}
+
+function mergeTasks(graphTasks, localTaskList) {
+  const localById = {};
+  for (const task of localTaskList) {
+    localById[task.id] = task;
+  }
+  return graphTasks.map((gt) => {
+    const local = localById[gt.id];
+    return local ? { ...gt, ...local } : gt;
+  });
 }
 
 function laneForRole(role) {
@@ -254,6 +271,20 @@ function evidenceCount(task) {
     : 0;
   const direct = Array.isArray(task.evidence) ? task.evidence.length : 0;
   return implementation + test + direct;
+}
+
+function collectEvidence(task) {
+  const items = [];
+  if (task.implementation && Array.isArray(task.implementation.evidence)) {
+    items.push(...task.implementation.evidence.map((e) => ({ type: "implementation", value: e })));
+  }
+  if (task.test && Array.isArray(task.test.evidence)) {
+    items.push(...task.test.evidence.map((e) => ({ type: "test", value: e })));
+  }
+  if (Array.isArray(task.evidence)) {
+    items.push(...task.evidence.map((e) => ({ type: "direct", value: e })));
+  }
+  return items;
 }
 
 function summarizeGit(git) {

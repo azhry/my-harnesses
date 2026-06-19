@@ -269,6 +269,15 @@
         "Stitch prompt approved during product review"
       ]
     },
+    "design_assets": {
+      "status": "approved",
+      "path": "runs/FTR-123/design-assets/",
+      "url": "",
+      "content_hash": "example-design-hash",
+      "evidence": [
+        "Design screens fetched from Stitch API and saved to design-assets/"
+      ]
+    },
     "system_rules": {
       "status": "approved",
       "path": "runs/FTR-123/artifacts/system-rules.md",
@@ -854,6 +863,15 @@
     "blockers": []
   },
   "gates": {
+    "tool_readiness_review": {
+      "status": "approved",
+      "approver": "Example Reviewer",
+      "approval_note": "All tools verified. Proceeding to knowledge discovery.",
+      "decided_at": "2026-06-19T00:05:00.000Z",
+      "evidence": [
+        "Tool readiness check completed and approved"
+      ]
+    },
     "product_review": {
       "status": "approved",
       "approver": "Example Reviewer",
@@ -881,6 +899,23 @@
     }
   },
   "human_instructions": {
+    "tool_readiness_review": {
+      "status": "sent",
+      "audience": [
+        "infrastructure"
+      ],
+      "instructions": "Review tool readiness report and approve or request changes before proceeding.",
+      "decision_options": [
+        "approve",
+        "approve_with_notes",
+        "request_changes",
+        "block"
+      ],
+      "questions": [],
+      "evidence": [
+        "Tool readiness report attached"
+      ]
+    },
     "product_review": {
       "status": "sent",
       "audience": [

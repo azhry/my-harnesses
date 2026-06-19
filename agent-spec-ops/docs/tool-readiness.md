@@ -87,6 +87,22 @@ Ready means at least one backend runtime is available. Docker is reported
 separately because some integration tests need it, but it is not universally
 required.
 
+## Human Gate
+
+After the readiness script completes, the harness **must not** proceed to
+`knowledge_discovery` without human acknowledgment. Present the readiness report
+to the human and wait for approval. The state machine enforces this through the
+`waiting_for_tool_readiness_review` state.
+
+Use:
+
+```bash
+node scripts/transition.js runs/<DELIVERY_ID>/workflow-state.json waiting_for_tool_readiness_review "Tool readiness checked, awaiting human approval"
+```
+
+The human can `approve`, `approve_with_notes`, `request_changes`, or `block`.
+If changes are requested, transition back to `tool_readiness` to re-run checks.
+
 ## State Recording
 
 Readiness results are recorded under:

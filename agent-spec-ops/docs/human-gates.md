@@ -3,7 +3,70 @@
 Human gates are required where the harness needs a business, product, design,
 or acceptance decision. They are not required for ordinary dev/test rework.
 
-## Gate 1: Product Review
+## Gate 0: Tool Readiness Review
+
+State:
+
+```text
+waiting_for_tool_readiness_review
+```
+
+Human decision options:
+
+- `approve`
+- `approve_with_notes`
+- `request_changes`
+- `block`
+
+Required before approval:
+
+- Tool readiness check has been executed.
+- Product tracker and code host are chosen.
+- Frontend and backend tooling are verified.
+- Readiness report is presented to human.
+
+Approved transition:
+
+```text
+waiting_for_tool_readiness_review -> knowledge_discovery
+```
+
+Revision transition:
+
+```text
+waiting_for_tool_readiness_review -> tool_readiness_revision -> tool_readiness
+```
+
+## Gate 1: Design Stitch
+
+State:
+
+```text
+waiting_for_design_stitch
+```
+
+Human decision options:
+
+- `approve` (with Stitch project ID in notes)
+- `approve_with_notes`
+- `block`
+
+Required before approval:
+
+- Stitch UI prompt exists and is ready.
+- Human has taken the prompt to Google Stitch.
+- Human returns with a Stitch project ID.
+
+Approved transition:
+
+```text
+waiting_for_design_stitch -> design_assembly
+```
+
+The approval_note **must** contain the Stitch project ID so the agent can
+retrieve and save the generated design screens.
+
+## Gate 2: Product Review
 
 State:
 
@@ -22,7 +85,7 @@ Required before approval:
 
 - Product requirements exist.
 - Acceptance criteria are testable.
-- Google Stitch prompt exists.
+- Google Stitch prompt exists and design assets are recorded.
 - UI/system rules exist.
 - Open questions are resolved, deferred, or marked as blockers.
 
@@ -38,7 +101,7 @@ Revision transition:
 waiting_for_product_review -> product_revision -> product_requirements
 ```
 
-## Gate 2: Delivery Plan Review
+## Gate 3: Delivery Plan Review
 
 State:
 
@@ -73,7 +136,7 @@ Revision transition:
 waiting_for_delivery_plan_review -> task_revision -> task_breakdown
 ```
 
-## Gate 3: Final Review
+## Gate 4: Final Review
 
 State:
 

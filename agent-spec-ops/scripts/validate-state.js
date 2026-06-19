@@ -216,7 +216,7 @@ if (requireObject("knowledge", state.knowledge)) {
 }
 
 if (requireObject("artifacts", state.artifacts)) {
-  for (const artifactName of ["product_requirements", "stitch_prompt", "system_rules", "task_breakdown", "handoff_report"]) {
+  for (const artifactName of ["product_requirements", "stitch_prompt", "design_assets", "system_rules", "task_breakdown", "handoff_report"]) {
     const artifact = state.artifacts[artifactName];
     if (!requireObject(`artifacts.${artifactName}`, artifact)) {
       continue;
@@ -650,6 +650,13 @@ requireObject("clean_state", state.clean_state);
 requireObject("evaluation", state.evaluation);
 requireArray("log", state.log);
 
+if (state.current_state === "waiting_for_tool_readiness_review") {
+  if (state.gates && state.gates.tool_readiness_review) {
+    if (state.gates.tool_readiness_review.status !== "approved" && state.current_state !== "blocked") {
+    }
+  }
+}
+
 if (state.current_state === "waiting_for_product_review") {
   if (!["ready_for_review", "approved", "published"].includes(state.artifacts.product_requirements.status)) {
     errors.push("waiting_for_product_review requires product_requirements ready for review");
@@ -657,8 +664,17 @@ if (state.current_state === "waiting_for_product_review") {
   if (!["ready_for_review", "approved", "published"].includes(state.artifacts.stitch_prompt.status)) {
     errors.push("waiting_for_product_review requires stitch_prompt ready for review");
   }
+  if (!["ready_for_review", "approved", "published"].includes(state.artifacts.design_assets.status)) {
+    errors.push("waiting_for_product_review requires design_assets ready for review");
+  }
   if (!["ready_for_review", "approved", "published"].includes(state.artifacts.system_rules.status)) {
     errors.push("waiting_for_product_review requires system_rules ready for review");
+  }
+}
+
+if (stateIndex >= states.indexOf("knowledge_discovery") && state.current_state !== "blocked") {
+  if (!state.gates || !state.gates.tool_readiness_review || state.gates.tool_readiness_review.status !== "approved") {
+    errors.push(`${state.current_state} requires gates.tool_readiness_review.status=approved`);
   }
 }
 
@@ -671,6 +687,36 @@ if (stateIndex >= states.indexOf("product_approved") && state.current_state !== 
 if (state.tool_readiness && state.current_state === "tool_readiness") {
   if (!["checking", "ready", "partial", "blocked"].includes(state.tool_readiness.status)) {
     errors.push("tool_readiness state requires tool_readiness.status checking, ready, partial, or blocked");
+  }
+}
+
+if (state.current_state === "waiting_for_tool_readiness_review") {
+  if (!["ready", "partial"].includes(state.tool_readiness.status)) {
+    errors.push("waiting_for_tool_readiness_review requires tool_readiness.status ready or partial");
+  }
+  if (!state.tool_readiness.choices || !state.tool_readiness.choices.product_tracker) {
+    errors.push("waiting_for_tool_readiness_review requires tool_readiness.choices.product_tracker");
+  }
+  if (!state.tool_readiness.choices || !state.tool_readiness.choices.code_host) {
+    errors.push("waiting_for_tool_readiness_review requires tool_readiness.choices.code_host");
+  }
+}
+
+if (state.current_state === "waiting_for_delivery_plan_review") {
+  if (state.current_state !== "blocked") {
+    if (Array.isArray(state.task_graph.tasks)) {
+      state.task_graph.tasks.forEach((task, index) => {
+        if (typeof task.description !== "string" || task.description.trim() === "") {
+          errors.push(`task_graph.tasks[${index}] requires non-empty description for delivery plan review`);
+        }
+        if (!Array.isArray(task.definition_of_done) || task.definition_of_done.length === 0) {
+          errors.push(`task_graph.tasks[${index}] requires at least one definition_of_done for delivery plan review`);
+        }
+        if (!Array.isArray(task.verification) || task.verification.length === 0) {
+          errors.push(`task_graph.tasks[${index}] requires at least one verification for delivery plan review`);
+        }
+      });
+    }
   }
 }
 

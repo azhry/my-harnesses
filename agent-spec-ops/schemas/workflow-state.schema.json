@@ -40,9 +40,13 @@
       "enum": [
         "intake",
         "tool_readiness",
+        "waiting_for_tool_readiness_review",
+        "tool_readiness_revision",
         "knowledge_discovery",
         "product_requirements",
         "ui_design_prompt",
+        "waiting_for_design_stitch",
+        "design_assembly",
         "system_rules",
         "waiting_for_product_review",
         "product_revision",
@@ -145,6 +149,7 @@
       "required": [
         "product_requirements",
         "stitch_prompt",
+        "design_assets",
         "system_rules",
         "task_breakdown",
         "handoff_report"
@@ -153,6 +158,7 @@
       "properties": {
         "product_requirements": { "$ref": "#/$defs/artifact" },
         "stitch_prompt": { "$ref": "#/$defs/artifact" },
+        "design_assets": { "$ref": "#/$defs/artifact" },
         "system_rules": { "$ref": "#/$defs/artifact" },
         "task_breakdown": { "$ref": "#/$defs/artifact" },
         "handoff_report": { "$ref": "#/$defs/artifact" }
@@ -273,9 +279,11 @@
     },
     "gates": {
       "type": "object",
-      "required": ["product_review", "delivery_plan_review", "final_review"],
+      "required": ["tool_readiness_review", "design_stitch", "product_review", "delivery_plan_review", "final_review"],
       "additionalProperties": false,
       "properties": {
+        "tool_readiness_review": { "$ref": "#/$defs/gate" },
+        "design_stitch": { "$ref": "#/$defs/gate" },
         "product_review": { "$ref": "#/$defs/gate" },
         "delivery_plan_review": { "$ref": "#/$defs/gate" },
         "final_review": { "$ref": "#/$defs/gate" }
@@ -283,9 +291,11 @@
     },
     "human_instructions": {
       "type": "object",
-      "required": ["product_review", "delivery_plan_review", "final_review"],
+      "required": ["tool_readiness_review", "design_stitch", "product_review", "delivery_plan_review", "final_review"],
       "additionalProperties": false,
       "properties": {
+        "tool_readiness_review": { "$ref": "#/$defs/humanInstruction" },
+        "design_stitch": { "$ref": "#/$defs/humanInstruction" },
         "product_review": { "$ref": "#/$defs/humanInstruction" },
         "delivery_plan_review": { "$ref": "#/$defs/humanInstruction" },
         "final_review": { "$ref": "#/$defs/humanInstruction" }

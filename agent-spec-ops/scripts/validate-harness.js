@@ -27,6 +27,7 @@ const requiredFiles = [
   "docs/monitor-ui.md",
   "docs/loops.md",
   "docs/verification.md",
+  "docs/design-assembly.md",
   "schemas/workflow-state.schema.json",
   "schemas/event.schema.json",
   "schemas/knowledge-card.schema.json",

@@ -6,6 +6,11 @@ host.
 
 ## Storage Layout
 
+All agent-generated output must go inside `runs/<DELIVERY_ID>/`. Never write
+scripts, templates, reports, design files, or any other artifact outside the
+run directory. This keeps the harness clean and prevents accidental pollution of
+shared tooling.
+
 Each run gets operational memory:
 
 ```text

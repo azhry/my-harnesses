@@ -140,9 +140,12 @@ The top-level states are:
 ```text
 intake
 tool_readiness
+waiting_for_tool_readiness_review  ← new: human must approve readiness before proceeding
+tool_readiness_revision            ← new: re-run checks after human revision request
 knowledge_discovery
 product_requirements
 ui_design_prompt
+design_assembly                    ← new: fetch actual Stitch design screens to runs/<ID>/design-assets/
 system_rules
 waiting_for_product_review
 product_revision

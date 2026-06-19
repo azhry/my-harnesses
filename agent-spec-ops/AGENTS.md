@@ -24,9 +24,31 @@ through frontend/backend implementation and verification.
   `blocked` or a human/planning gate.
 - Human gates are required only for product approval, delivery plan approval,
   and final acceptance.
-- Run `scripts/check-tool-readiness.js` before source-dependent discovery.
+- **Tool readiness must go through the human gate.** After running
+  `scripts/check-tool-readiness.js`, transition to
+  `waiting_for_tool_readiness_review` and present the readiness report to the
+  human. Do not skip to `knowledge_discovery` without human approval.
   Tokens/PATs may be prompted interactively, but raw token values must never be
   written to state, reports, logs, or comments.
+- **All agent-generated output must go inside `runs/<DELIVERY_ID>/`.**
+  Never write scripts, templates, reports, design assets, or any other file
+  outside the run directory. The write scope for each role is:
+  - Product Manager: `runs/<DELIVERY_ID>/product-requirements.md`,
+    `runs/<DELIVERY_ID>/stitch-ui-prompt.md`,
+    `runs/<DELIVERY_ID>/design-assets/`,
+    `runs/<DELIVERY_ID>/system-rules.md`,
+    `runs/<DELIVERY_ID>/ui-design-spec.md`
+  - Project Manager: `runs/<DELIVERY_ID>/task-breakdown.md`
+  - Dev/Test roles: the project repo's approved paths (not harness files)
+  - Orchestrator: `runs/<DELIVERY_ID>/workflow-state.json` and memory files
+- **After writing the Stitch prompt in `ui_design_prompt`, transition to
+  `design_assembly` to fetch the actual design screens.** Use the Stitch API to
+  retrieve generated screens and save them as HTML files under
+  `runs/<DELIVERY_ID>/design-assets/`. Only then transition to `system_rules`.
+- **Every task in the task breakdown must have a non-empty `description` and at
+  least one `acceptance_criterion`.** Thin one-line tasks are not allowed. The
+  `validate-state.js` script enforces this before
+  `waiting_for_delivery_plan_review`.
 - Run `scripts/check-contracts.js` and `scripts/check-scope.js` before final
   review. Do not mark integration passed with failed or blocked contract/scope
   checks.
@@ -61,9 +83,12 @@ Use:
 node scripts/check-tool-readiness.js runs/<DELIVERY_ID>/workflow-state.json
 ```
 
-Proceed past `tool_readiness` when status is `ready` or `partial`. Use
-`partial` only when missing capabilities are not required for the next phase or
-are recorded as blockers/gaps.
+Do **not** proceed past `tool_readiness` without human acknowledgment.
+Transition to `waiting_for_tool_readiness_review` and present the readiness
+report to the human. Wait for approval before moving to `knowledge_discovery`.
+
+Use `partial` only when missing capabilities are not required for the next phase
+or are recorded as blockers/gaps.
 
 When Linear/Jira is unavailable, use the local task tracker:
 

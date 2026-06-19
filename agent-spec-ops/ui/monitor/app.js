@@ -24,7 +24,9 @@ const SECTION_HELP = {
   "Memory Stream": "Use this as the run timeline. It records important events such as disapprovals, loop failures, tool readiness, spawns, and merge actions.",
   "Eval Ledger": "Use this to review scored checks from each loop so the harness can compare quality over time and decide what needs another pass.",
   "Token Ledger": "Use this to audit token and cost rows at run, task, eval, role, or tool scope. It is the raw trail behind the cost summary.",
-  "Remarks": "Use this to capture human and agent observations: disapprovals, changes, risks, reusable patterns, and completed work."
+  "Remarks": "Use this to capture human and agent observations: disapprovals, changes, risks, reusable patterns, and completed work.",
+  "Artifacts": "Use this to browse all generated delivery artifacts. Click filenames to open them in the browser. Evidence items link to specific files in the run directory.",
+  "Design Assets": "Use this to preview visual mockups generated from Google Stitch. Each mockup is an HTML file you can open and inspect."
 };
 
 refreshButton.addEventListener("click", () => refresh());
@@ -138,6 +140,10 @@ function renderRunDetail(run) {
     return;
   }
 
+  const artifacts = run.artifacts || {};
+  const designAssets = artifacts.design_assets;
+  const designFiles = designAssets && designAssets.path ? listDesignAssets(designAssets.path, designAssets.evidence) : [];
+
   runDetail.innerHTML = `
     <header class="run-hero">
       <div class="hero-main">
@@ -158,6 +164,8 @@ function renderRunDetail(run) {
       ${module("Run Snapshot", snapshotHtml(run), "span-4")}
       ${module("Human Gates", gatesHtml(run.gates.entries), "span-4")}
       ${module("Loop Pressure", loopsHtml(run.loops.entries), "span-4")}
+      ${module("Artifacts", artifactsHtml(artifacts), "span-6")}
+      ${designFiles.length ? module("Design Assets", designAssetsHtml(designFiles), "span-6") : ""}
       ${module("Task Lanes", taskLanesHtml(run.tasks.entries), "span-12")}
       ${module("Role Board", rolesHtml(run.roles), "span-4")}
       ${module("Integration Checks", integrationHtml(run.integration, run.contracts), "span-4")}
@@ -204,15 +212,18 @@ function snapshotHtml(run) {
 }
 
 function gatesHtml(gates) {
-  return listRows(gates, (gate) => `
+  if (!gates || !gates.length) return `<div class="blank">No gates</div>`;
+  return `<div class="rail">${gates.map((gate) => `
     <div class="rail-row">
       <div>
         <div class="row-title">${escapeHtml(labelize(gate.name))}</div>
-        <div class="row-note">${escapeHtml(gate.approver || "No approver")} / ${escapeHtml(gate.evidence_count)} evidence</div>
+        <div class="row-note">${escapeHtml(gate.approver || "No approver")}${gate.evidence_count ? ` / ${gate.evidence_count} evidence items` : ""}</div>
+        ${gate.approval_note ? `<div class="row-note">${escapeHtml(gate.approval_note)}</div>` : ""}
+        ${gate.evidence && gate.evidence.length ? evidenceList(gate.evidence) : ""}
       </div>
       ${tag(gate.status)}
     </div>
-  `);
+  `).join("")}</div>`;
 }
 
 function loopsHtml(loops) {
@@ -300,19 +311,86 @@ function taskLanesHtml(tasks) {
 }
 
 function taskItemHtml(task) {
+  const links = [];
+  if (task.linear_id) links.push(`<span class="tag tag-work">${escapeHtml(task.linear_id)}</span>`);
+  if (task.git && task.git.merge_request_url) links.push(`<a class="file-link" href="${escapeHtml(task.git.merge_request_url)}" target="_blank" rel="noopener">MR</a>`);
+
   return `
     <article class="task-item">
-      <div class="task-title">${escapeHtml(task.id)} / ${escapeHtml(task.title || "Untitled")}</div>
+      <div class="task-title">
+        <span class="task-id">${escapeHtml(task.id)}</span>
+        ${escapeHtml(task.title || "Untitled")}
+      </div>
       <div class="task-meta">
         ${tag(task.status)}
         ${microTag(task.role || "unassigned")}
-        ${microTag(`${task.evidence_count} evidence`)}
+        ${task.evidence_count ? microTag(`${task.evidence_count} evidence`, "tag-note") : ""}
         ${task.token_usage.total_tokens ? microTag(`${compactNumber(task.token_usage.total_tokens)} tok`) : ""}
         ${task.token_usage.total_cost_usd ? microTag(money(task.token_usage.total_cost_usd)) : ""}
       </div>
+      ${links.length ? `<div class="task-meta">${links.join("")}</div>` : ""}
+      ${task.evidence_items && task.evidence_items.length ? evidenceList(task.evidence_items) : ""}
       <div class="fineprint">${gitBits(task.git).join(" / ") || "git not started"}</div>
+      ${task.description ? `<div class="row-note">${escapeHtml(task.description)}</div>` : ""}
     </article>
   `;
+}
+
+function artifactsHtml(artifacts) {
+  const entries = Object.entries(artifacts).filter(([name]) => name !== "design_assets");
+  if (!entries.length) return `<div class="blank">No artifacts recorded</div>`;
+  return `<div class="rail">${entries.map(([name, artifact]) => {
+    const fileLink = artifact.path ? artifactLink(artifact.path) : escapeHtml(name);
+    return `
+      <div class="rail-row">
+        <div>
+          <div class="row-title">${escapeHtml(labelize(name))}</div>
+          <div class="row-note">${fileLink}</div>
+          ${artifact.evidence && artifact.evidence.length ? evidenceList(artifact.evidence) : ""}
+        </div>
+        ${tag(artifact.status)}
+      </div>
+    `;
+  }).join("")}</div>`;
+}
+
+function designAssetsHtml(files) {
+  return `
+    <div class="asset-grid">${files.map((file) => `
+      <a class="asset-card" href="/files/${encodeURI(file.path)}" target="_blank" rel="noopener">
+        <span class="asset-name">${escapeHtml(file.name)}</span>
+        <span class="asset-code">${escapeHtml(file.path)}</span>
+      </a>
+    `).join("")}</div>
+    <div class="fineprint" style="margin-top:8px">${files.length} mockups from Google Stitch</div>
+  `;
+}
+
+function listDesignAssets(basePath, evidence) {
+  if (!evidence || !evidence.length) return [];
+  const files = evidence.filter((e) => e.endsWith(".html"));
+  return files.map((file) => ({
+    name: file.split("/").pop(),
+    path: file
+  }));
+}
+
+function artifactLink(filePath) {
+  return `<a class="file-link" href="/files/${encodeURI(filePath)}" target="_blank" rel="noopener">${escapeHtml(filePath)}</a>`;
+}
+
+function evidenceList(items) {
+  if (!items || !items.length) return "";
+  return `<div class="evidence-strip">${items.map((item) => {
+    const value = typeof item === "object" && item.value != null ? item.value : item;
+    if (typeof value === "string" && (value.startsWith("runs/") || value.startsWith("file://") || value.startsWith("env:"))) {
+      if (value.startsWith("env:")) {
+        return `<span class="evidence-chip evidence-chip--text">${escapeHtml(value)}</span>`;
+      }
+      return `<a class="evidence-chip" href="/files/${encodeURI(value)}" target="_blank" rel="noopener">${escapeHtml(value.split("/").pop())}</a>`;
+    }
+    return `<span class="evidence-chip evidence-chip--text">${escapeHtml(String(value).length > 60 ? String(value).slice(0, 60) + "…" : value)}</span>`;
+  }).join("")}</div>`;
 }
 
 function eventsHtml(events) {

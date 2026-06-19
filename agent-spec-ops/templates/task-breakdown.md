@@ -36,9 +36,9 @@ Delivery: `<DELIVERY_ID>` - `<TITLE>`
 
 ## Frontend Implementation Tasks
 
-| ID | Task | Depends On | Feature Branch | Allowed Paths | Contract Refs | Definition Of Done | Verification |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| FE-001 |  |  | `delivery/<DELIVERY_ID>/FE-001` |  |  |  |  |
+| ID | Task | Description | Acceptance Criteria | Depends On | Feature Branch | Allowed Paths | Contract Refs | Definition Of Done | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| FE-001 |  |  |  |  | `delivery/<DELIVERY_ID>/FE-001` |  |  |  |  |
 
 ## Frontend Test Tasks
 

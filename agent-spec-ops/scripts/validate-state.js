@@ -771,6 +771,77 @@ if (state.current_state === "done") {
   }
 }
 
+const LANE_ROLE_MAP = {
+  frontend_dev: "frontend",
+  frontend_test: "frontend",
+  backend_dev: "backend",
+  backend_test: "backend",
+  orchestrator: "integration"
+};
+
+const frontendLaneStates = new Set(["frontend_dev", "frontend_test", "frontend_verified"]);
+const backendLaneStates = new Set(["backend_dev", "backend_test", "backend_verified"]);
+
+if (Array.isArray(state.task_graph.tasks) && state.task_graph.tasks.length) {
+  const allTasks = state.task_graph.tasks;
+
+  if (frontendLaneStates.has(state.current_state)) {
+    const feTasks = allTasks.filter((t) => LANE_ROLE_MAP[t.role] === "frontend");
+    const feVerified = feTasks.every((t) =>
+      ["verified", "not_applicable", "waived"].includes(t.status)
+    );
+    if (state.current_state === "frontend_verified" && !feVerified) {
+      errors.push("frontend_verified state requires all frontend tasks verified/waived/not_applicable");
+    }
+  }
+
+  if (backendLaneStates.has(state.current_state)) {
+    const beTasks = allTasks.filter((t) => LANE_ROLE_MAP[t.role] === "backend");
+    const beVerified = beTasks.every((t) =>
+      ["verified", "not_applicable", "waived"].includes(t.status)
+    );
+    if (state.current_state === "backend_verified" && !beVerified) {
+      errors.push("backend_verified state requires all backend tasks verified/waived/not_applicable");
+    }
+  }
+
+  if (state.current_state === "integration_verification") {
+    const allMustVerify = allTasks.filter((t) => t.role !== "orchestrator" && t.role !== "product_manager" && t.role !== "project_manager");
+    const allVerified = allMustVerify.every((t) =>
+      ["verified", "not_applicable", "waived"].includes(t.status)
+    );
+    if (!allVerified) {
+      const unverified = allMustVerify
+        .filter((t) => !["verified", "not_applicable", "waived"].includes(t.status))
+        .map((t) => `${t.id} (${t.status})`)
+        .join(", ");
+      errors.push(`integration_verification requires all tasks verified/waived/not_applicable. Unverified: ${unverified}`);
+    }
+  }
+
+  if (["implementation_in_progress", "integration_verification", "waiting_for_final_review", "done"].includes(state.current_state)) {
+    for (const task of allTasks) {
+      if (task.status === "verified" && ["frontend_dev", "backend_dev"].includes(task.role)) {
+        const git = task.git_flow || {};
+        if (!git.local_tests_passed) {
+          errors.push(`${task.id} is verified but git_flow.local_tests_passed is not true`);
+        }
+        if (!git.pushed) {
+          errors.push(`${task.id} is verified but git_flow.pushed is not true`);
+        }
+        if (!["created", "open", "merged"].includes(git.merge_request_status) || !git.merge_request_url) {
+          errors.push(`${task.id} is verified but git_flow has no merge_request with URL`);
+        }
+      }
+    }
+  }
+}
+
+const knownStates = new Set(states);
+if (!knownStates.has(state.current_state)) {
+  errors.push(`current_state "${state.current_state}" is not a valid state in the state machine`);
+}
+
 if (errors.length) {
   console.error("State validation failed:");
   for (const error of errors) {

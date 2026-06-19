@@ -10,3 +10,4 @@ agent-spec-ops/runs/*/
 !agent-spec-ops/runs/.gitkeep
 agent-spec-ops/history/
 agent-spec-ops/node_modules/
+notes.txt

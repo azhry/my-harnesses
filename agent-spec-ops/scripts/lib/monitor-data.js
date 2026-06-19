@@ -159,6 +159,8 @@ function buildRunView(id, state, localTasks, events, evals, remarks, tokenUsage)
     dispatch: summarizeDispatch(dispatch),
     memory: summarizeMemory(state.memory || {}, events, evals, remarks, tokenUsage),
     token_usage: summarizeTokenUsage(tokenUsage),
+    human_instructions: state.human_instructions || {},
+    test_results: summarizeTestResults(tasks),
     recent_events: events.slice(-20).reverse(),
     recent_evals: evals.slice(-20).reverse(),
     recent_remarks: remarks.slice(-20).reverse(),
@@ -368,6 +370,30 @@ function summarizeMemory(memory, events, evals, remarks, tokenUsage) {
     last_eval_at: memory.last_eval_at || "",
     last_remark_at: memory.last_remark_at || "",
     last_knowledge_query_at: memory.last_knowledge_query_at || ""
+  };
+}
+
+function summarizeTestResults(tasks) {
+  const entries = tasks.filter((t) => t.test && (t.test.status || t.test.evidence || t.test.cases)).map((task) => {
+    const test = task.test || {};
+    return {
+      task_id: task.id,
+      title: task.title || "",
+      role: task.role,
+      status: test.status || "unknown",
+      cases: Array.isArray(test.cases) ? test.cases : [],
+      commands: Array.isArray(test.commands) ? test.commands : [],
+      evidence: Array.isArray(test.evidence) ? test.evidence : [],
+      failures: Array.isArray(test.failures) ? test.failures : [],
+      output_file: test.output_file || "",
+      last_run_at: test.last_run_at || ""
+    };
+  });
+  return {
+    entries,
+    total: entries.length,
+    passed: entries.filter((e) => e.status === "passed").length,
+    failed: entries.filter((e) => e.status === "failed").length
   };
 }
 

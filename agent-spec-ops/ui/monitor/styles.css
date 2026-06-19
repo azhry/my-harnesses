@@ -592,6 +592,8 @@ h3 {
 .rail {
   display: grid;
   gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .rail-row {
@@ -713,8 +715,27 @@ h3 {
 }
 
 .ledger {
-  overflow: auto;
+  max-height: 320px;
+  overflow-y: auto;
 }
+
+.ledger table {
+  table-layout: fixed;
+}
+
+.ledger th,
+.ledger td {
+  word-break: break-word;
+}
+
+.ledger th:nth-child(1),
+.ledger td:nth-child(1) { width: 100px; }
+.ledger th:nth-child(2),
+.ledger td:nth-child(2) { width: 90px; }
+.ledger th:nth-child(3),
+.ledger td:nth-child(3) { width: 80px; }
+.ledger th:last-child,
+.ledger td:last-child { width: auto; }
 
 table {
   width: 100%;
@@ -837,6 +858,19 @@ a.evidence-chip:hover {
 .evidence-chip--text {
   color: var(--muted);
   background: var(--panel-soft);
+}
+
+.review-instructions {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .task-id {

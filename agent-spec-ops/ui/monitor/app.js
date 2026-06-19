@@ -26,7 +26,9 @@ const SECTION_HELP = {
   "Token Ledger": "Use this to audit token and cost rows at run, task, eval, role, or tool scope. It is the raw trail behind the cost summary.",
   "Remarks": "Use this to capture human and agent observations: disapprovals, changes, risks, reusable patterns, and completed work.",
   "Artifacts": "Use this to browse all generated delivery artifacts. Click filenames to open them in the browser. Evidence items link to specific files in the run directory.",
-  "Design Assets": "Use this to preview visual mockups generated from Google Stitch. Each mockup is an HTML file you can open and inspect."
+  "Design Assets": "Use this to preview visual mockups generated from Google Stitch. Each mockup is an HTML file you can open and inspect.",
+  "Test Results": "Use this to review test outcomes per task: which commands were run, which cases passed or failed, and links to test output logs.",
+  "Review Instructions": "Use this to see what the harness is asking you to review. Read the instructions, questions, and decision options, then provide your feedback."
 };
 
 refreshButton.addEventListener("click", () => refresh());
@@ -69,20 +71,22 @@ function selectedRun() {
 
 function render() {
   if (!store.data) return;
-  renderSignals(store.data.summary);
+  const run = selectedRun();
+  renderSignals(store.data.summary, run);
   renderRunStack(store.data.runs);
-  renderRunDetail(selectedRun());
+  renderRunDetail(run);
   lastUpdated.textContent = `Updated ${formatDateTime(store.data.generated_at)}`;
 }
 
-function renderSignals(summary) {
+function renderSignals(summary, run) {
+  const useTokens = run && run.token_usage && run.token_usage.total_tokens > 0;
   const metrics = [
     ["Runs", summary.total_runs],
     ["Active", summary.active_runs],
     ["Blocked", summary.blocked_runs],
     ["Tasks", summary.total_tasks],
-    ["Tokens", compactNumber(summary.total_tokens)],
-    ["Cost", money(summary.total_token_cost_usd)],
+    ["Tokens", useTokens ? compactNumber(run.token_usage.total_tokens) : compactNumber(summary.total_tokens)],
+    ["Cost", useTokens ? money(run.token_usage.total_cost_usd) : money(summary.total_token_cost_usd)],
     ["Events", summary.memory_events],
     ["Knowledge", summary.knowledge_cards]
   ];
@@ -118,7 +122,7 @@ function renderRunStack(runs) {
         <span class="run-entry-foot">
           ${microTag(`${run.tasks.total} tasks`)}
           ${microTag(`${run.memory.event_count} events`)}
-          ${run.token_usage.total_tokens ? microTag(`${compactNumber(run.token_usage.total_tokens)} tokens`) : ""}
+          ${run.token_usage.total_tokens ? microTag(`${compactNumber(run.token_usage.total_tokens)} tok / ${money(run.token_usage.total_cost_usd)}`) : ""}
           ${run.gates.waiting ? microTag(`${run.gates.waiting} gates`) : ""}
         </span>
       </span>
@@ -161,11 +165,13 @@ function renderRunDetail(run) {
     </header>
 
     <div class="detail-matrix">
+      ${run.human_instructions && Object.keys(run.human_instructions).length ? module("Review Instructions", reviewInstructionsHtml(run.human_instructions), "span-12") : ""}
       ${module("Run Snapshot", snapshotHtml(run), "span-4")}
       ${module("Human Gates", gatesHtml(run.gates.entries), "span-4")}
       ${module("Loop Pressure", loopsHtml(run.loops.entries), "span-4")}
-      ${module("Artifacts", artifactsHtml(artifacts), "span-6")}
-      ${designFiles.length ? module("Design Assets", designAssetsHtml(designFiles), "span-6") : ""}
+      ${module("Artifacts", artifactsHtml(artifacts), "span-4")}
+      ${module("Test Results", testResultsHtml(run.test_results), "span-4")}
+      ${designFiles.length ? module("Design Assets", designAssetsHtml(designFiles), "span-4") : module("Design Assets", '<div class="blank">No design assets</div>', "span-4")}
       ${module("Task Lanes", taskLanesHtml(run.tasks.entries), "span-12")}
       ${module("Role Board", rolesHtml(run.roles), "span-4")}
       ${module("Integration Checks", integrationHtml(run.integration, run.contracts), "span-4")}
@@ -352,6 +358,55 @@ function artifactsHtml(artifacts) {
       </div>
     `;
   }).join("")}</div>`;
+}
+
+function reviewInstructionsHtml(instructions) {
+  const finalReview = instructions.final_review;
+  if (!finalReview || !finalReview.instructions) return `<div class="blank">No review instructions</div>`;
+  return `
+    <div class="datum-grid" style="margin-bottom:12px">
+      ${datum("Status", tag(finalReview.status))}
+      ${datum("Audience", Array.isArray(finalReview.audience) && finalReview.audience.length ? finalReview.audience.join(", ") : "—")}
+      ${datum("Decision", Array.isArray(finalReview.decision_options) ? finalReview.decision_options.map(d => tag(d)).join(" ") : "—")}
+    </div>
+    <div class="review-instructions">
+      ${escapeHtml(finalReview.instructions).split("\\n").join("<br>")}
+    </div>
+    ${Array.isArray(finalReview.questions) && finalReview.questions.length ? `
+      <div class="rail" style="margin-top:12px">
+        <div class="rail-row"><strong>Review Questions</strong></div>
+        ${finalReview.questions.map((q, i) => `
+          <div class="rail-row">
+            <div class="row-title">${i + 1}. ${escapeHtml(q)}</div>
+          </div>
+        `).join("")}
+      </div>
+    ` : ""}
+  `;
+}
+
+function testResultsHtml(testResults) {
+  if (!testResults || !testResults.entries || !testResults.entries.length) return `<div class="blank">No test results recorded</div>`;
+  return `
+    <div class="datum-grid">
+      ${datum("Total", testResults.total)}
+      ${datum("Passed", testResults.passed)}
+      ${datum("Failed", testResults.failed)}
+    </div>
+    <div class="rail">${testResults.entries.map((entry) => `
+      <div class="rail-row">
+        <div>
+          <div class="row-title">${escapeHtml(entry.task_id)}: ${escapeHtml(entry.title || "Untitled")}</div>
+          <div class="row-note">${entry.commands.length ? `Commands: ${escapeHtml(entry.commands.join("; "))}` : ""}</div>
+          ${entry.failures.length ? `<div class="row-note" style="color:var(--danger)">Failures: ${escapeHtml(entry.failures.join("; "))}</div>` : ""}
+          ${entry.cases.length ? `<div class="row-note">Cases: ${escapeHtml(entry.cases.join(", "))}</div>` : ""}
+          ${entry.output_file ? `<div class="row-note"><a class="file-link" href="/files/${encodeURI(entry.output_file)}" target="_blank" rel="noopener">View test output</a></div>` : ""}
+          ${entry.last_run_at ? `<div class="fineprint">Last run: ${escapeHtml(formatDateTime(entry.last_run_at))}</div>` : ""}
+        </div>
+        ${tag(entry.status)}
+      </div>
+    `).join("")}</div>
+  `;
 }
 
 function designAssetsHtml(files) {

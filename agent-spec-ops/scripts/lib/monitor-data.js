@@ -451,18 +451,26 @@ function loadDashboardData() {
   const runs = loadAllRuns();
   const globalEvals = readCsv(path.join(root, "history", "evals.csv"));
   const globalRemarks = readCsv(path.join(root, "history", "remarks.csv"));
-  const globalTokenUsage = readCsv(path.join(root, "history", "token-usage.csv"));
   const knowledgeCount = countKnowledgeCards(path.join(root, "knowledge", "cards"));
   return {
     generated_at: new Date().toISOString(),
     runs,
-    summary: summarizeAllRuns(runs, globalEvals, globalRemarks, globalTokenUsage, knowledgeCount)
+    summary: summarizeAllRuns(runs, globalEvals, globalRemarks, knowledgeCount)
   };
 }
 
-function summarizeAllRuns(runs, globalEvals, globalRemarks, globalTokenUsage, knowledgeCount) {
+function summarizeAllRuns(runs, globalEvals, globalRemarks, knowledgeCount) {
   const taskTotals = runs.reduce((total, run) => total + run.tasks.total, 0);
-  const tokenTotals = summarizeTokenUsage(globalTokenUsage);
+  const tokenTotals = runs.reduce((total, run) => {
+    const usage = run.token_usage || {};
+    total.input_tokens += usage.input_tokens || 0;
+    total.output_tokens += usage.output_tokens || 0;
+    total.cached_input_tokens += usage.cached_input_tokens || 0;
+    total.reasoning_tokens += usage.reasoning_tokens || 0;
+    total.total_tokens += usage.total_tokens || 0;
+    total.total_cost_usd = roundCost(total.total_cost_usd + (usage.total_cost_usd || 0));
+    return total;
+  }, { input_tokens: 0, output_tokens: 0, cached_input_tokens: 0, reasoning_tokens: 0, total_tokens: 0, total_cost_usd: 0 });
   return {
     total_runs: runs.length,
     active_runs: runs.filter((run) => !["done", "blocked"].includes(run.current_state)).length,
@@ -478,7 +486,7 @@ function summarizeAllRuns(runs, globalEvals, globalRemarks, globalTokenUsage, kn
     memory_events: runs.reduce((total, run) => total + run.memory.event_count, 0),
     eval_rows: globalEvals.length,
     remark_rows: globalRemarks.length,
-    token_usage_rows: globalTokenUsage.length,
+    token_usage_rows: runs.reduce((total, run) => total + (run.token_usage && run.token_usage.rows ? run.token_usage.rows : 0), 0),
     total_tokens: tokenTotals.total_tokens,
     total_token_cost_usd: tokenTotals.total_cost_usd,
     knowledge_cards: knowledgeCount

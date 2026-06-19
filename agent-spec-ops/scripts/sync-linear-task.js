@@ -23,16 +23,26 @@ const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_T
 const LINEAR_TEAM_ID = process.env.LINEAR_TEAM_ID || "";
 const GRAPHQL_URL = "https://api.linear.app/graphql";
 
-if (!LINEAR_API_KEY) {
-  console.log("LINEAR_API_KEY not set — Linear sync skipped");
-  process.exit(0);
-}
-
 const statePath = path.resolve(args.stateFile);
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
 const deliveryId = state.delivery && state.delivery.id ? state.delivery.id : path.basename(path.dirname(statePath));
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
 const targetTasks = args.taskId ? tasks.filter((t) => t.id === args.taskId) : tasks;
+
+const allHaveIds = targetTasks.length > 0 && targetTasks.every((t) => t.linear_id);
+const anyHaveIds = targetTasks.some((t) => t.linear_id);
+
+if (!LINEAR_API_KEY) {
+  if (allHaveIds) {
+    console.log(`All ${targetTasks.length} task(s) already have Linear IDs — no sync needed`);
+    process.exit(0);
+  }
+  console.log("LINEAR_API_KEY not set — Linear sync skipped");
+  if (anyHaveIds) {
+    console.log("Note: some tasks already have Linear IDs linked in state");
+  }
+  process.exit(0);
+}
 
 if (!targetTasks.length) {
   console.log(`No tasks to sync`);

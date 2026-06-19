@@ -11,6 +11,7 @@ const {
 } = require("./lib/state-machine");
 const { execSync } = require("child_process");
 const { appendEvent } = require("./lib/memory-store");
+const { checkContext } = require("./lib/context-check");
 
 const ALLOWED_TRANSITIONS = {
   planned: ["active", "blocked", "waived", "not_applicable"],
@@ -36,6 +37,8 @@ const LANE_ROLE_MAP = {
 
 const [file, taskId, nextStatus, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
+
+checkContext("transition-task.js");
 
 if (!file || !taskId || !nextStatus) {
   console.error("Usage: node scripts/transition-task.js path/to/workflow-state.json TASK_ID STATUS [NOTE]");

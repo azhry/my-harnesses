@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { states, transitions, canTransition } = require("./lib/state-machine");
 const { appendEvent } = require("./lib/memory-store");
+const { checkContext } = require("./lib/context-check");
 
 const [file, nextState, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
@@ -30,6 +31,8 @@ if (!canTransition(currentState, nextState)) {
   console.error(`Allowed from ${currentState}: ${allowed.join(", ") || "(none)"}`);
   process.exit(1);
 }
+
+checkContext("transition.js");
 
 const taskList = state.task_graph && Array.isArray(state.task_graph.tasks)
   ? state.task_graph.tasks

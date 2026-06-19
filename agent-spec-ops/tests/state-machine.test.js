@@ -12,7 +12,7 @@ const TMP = path.join(ROOT, ".test-tmp");
 
 function runScript(script, args = [], options = {}) {
   const cmd = `node "${path.join(SCRIPTS, script)}" ${args.map(a => `"${a}"`).join(" ")}`;
-  const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1" }, ...options };
+  const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1", SKIP_CONTEXT_CHECK: "1" }, ...options };
   try {
     const stdout = execSync(cmd, execOptions);
     return { stdout: stdout.trim(), stderr: "", exitCode: 0 };
@@ -151,7 +151,7 @@ describe("transition-task.js", () => {
   });
 
   after(() => {
-    fs.rmSync(TMP, { recursive: true, force: true });
+    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   });
 
   it("rejects unknown task", () => {
@@ -316,7 +316,7 @@ describe("transition.js", () => {
   });
 
   after(() => {
-    fs.rmSync(TMP, { recursive: true, force: true });
+    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   });
 
   it("rejects direct jump to integration_verification with unverified tasks", () => {
@@ -344,7 +344,7 @@ describe("validate-state.js", () => {
   });
 
   after(() => {
-    fs.rmSync(TMP, { recursive: true, force: true });
+    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   });
 
   it("rejects state with invalid top-level state name", () => {

@@ -31,6 +31,7 @@ const currentState = state.current_state || "unknown";
 const updatedAt = state.delivery.updated_at || "";
 
 const HARNESS_ROOT = path.resolve(__dirname, "..");
+
 const separator = "=".repeat(60);
 const subSep = "-".repeat(40);
 
@@ -185,6 +186,16 @@ if (fs.existsSync(eventsPath)) {
     console.log(`  ${(evt.created_at || "").slice(11, 19)} ${evt.type.padEnd(25)} ${evt.summary || ""}`);
   }
 }
+
+fs.writeFileSync(path.join(HARNESS_ROOT, ".session.json"), JSON.stringify({
+  delivery_id: deliveryId,
+  started_at: new Date().toISOString(),
+  state: currentState,
+  tasks_total: tasks.length,
+  tasks_verified: tasks.filter((t) => t.status === "verified").length,
+  tokens: tokens ? tokens.total_tokens : 0,
+  cost: tokens ? tokens.total_cost_usd : 0
+}, null, 2) + "\n");
 
 console.log(`\n${separator}`);
 console.log(`  Run this at session start to restore context.`);

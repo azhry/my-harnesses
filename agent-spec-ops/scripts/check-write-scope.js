@@ -74,10 +74,46 @@ function pathEquals(a, b) {
 
 const errors = [];
 
-const stateWorkspaceRoot = state.workspace_root || "";
-const workspaceRoot = stateWorkspaceRoot
-  ? path.resolve(harnessRoot, stateWorkspaceRoot)
-  : path.resolve(harnessRoot, "..");
+const tasks = (state.task_graph && state.task_graph.tasks) || [];
+const allAllowedRepos = new Set();
+for (const t of tasks) {
+  if (t.scope && Array.isArray(t.scope.allowed_repos)) {
+    for (const repo of t.scope.allowed_repos) {
+      allAllowedRepos.add(repo);
+    }
+  }
+}
+
+// Determine workspace root:
+// 1. Use state.workspace_root if set
+// 2. Auto-detect by checking which ancestor of harness contains the allowed repos
+// 3. Fall back to parent of harness root
+let workspaceRoot;
+if (state.workspace_root) {
+  workspaceRoot = path.resolve(harnessRoot, state.workspace_root);
+} else if (allAllowedRepos.size > 0) {
+  const ancestors = path.resolve(harnessRoot).split(path.sep);
+  let found = false;
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const candidate = ancestors.slice(0, i + 1).join(path.sep);
+    const allFound = [...allAllowedRepos].every((repo) => {
+      const repoDir = path.join(candidate, repo);
+      return fs.existsSync(repoDir) && fs.statSync(repoDir).isDirectory();
+    });
+    if (allFound) {
+      workspaceRoot = candidate;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    workspaceRoot = path.resolve(harnessRoot, "..");
+    console.warn(`  Could not auto-detect workspace root for repos: ${[...allAllowedRepos].join(", ")}`);
+    console.warn(`  Target project may be in wrong location. Set workspace_root in state file.`);
+  }
+} else {
+  workspaceRoot = path.resolve(harnessRoot, "..");
+}
 
 if (runDir && isWithin(runDir, resolvedTarget)) {
   console.log(`OK: ${targetPath} is within run directory (runs/${deliveryId}/)`);
@@ -119,8 +155,6 @@ if (errors.length) {
 }
 
 const taskScopes = [];
-const tasks = (state.task_graph && state.task_graph.tasks) || [];
-const allAllowedRepos = new Set();
 
 for (const t of tasks) {
   if (t.scope && Array.isArray(t.scope.allowed_paths)) {

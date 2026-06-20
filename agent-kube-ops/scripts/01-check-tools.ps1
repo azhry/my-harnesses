@@ -50,3 +50,4 @@ if ($Script:FAILED -ne 0) {
 }
 
 Write-Output "PASS: All required tools are ready."
+exit 0

@@ -224,11 +224,51 @@ fs.writeFileSync(path.join(markerDir, ".session.json"), JSON.stringify({
 }, null, 2) + "\n");
 
 console.log(`\n${separator}`);
-console.log(`  AUTO-SYNCING LINEAR...`);
+console.log(`  LINEAR STATUS`);
 console.log(`${separator}\n`);
 
-const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
-if (LINEAR_API_KEY) {
+const LINEAR_API_KEY_ENV = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+const LINEAR_TEAM_ID_ENV = process.env.LINEAR_TEAM_ID || "";
+const LINEAR_PROJECT_ID_ENV = process.env.LINEAR_PROJECT_ID || "";
+
+// Restore Linear config from state if env vars not set
+const savedConfig = state.linear_config || {};
+const effectiveApiKey = LINEAR_API_KEY_ENV || savedConfig.api_key || "";
+const effectiveTeamId = LINEAR_TEAM_ID_ENV || savedConfig.team_id || "";
+const effectiveProjectId = LINEAR_PROJECT_ID_ENV || savedConfig.project_id || "";
+
+console.log(`  API Key:    ${effectiveApiKey ? `✓ ${effectiveApiKey.slice(0, 12)}... (${LINEAR_API_KEY_ENV ? "env" : "saved in state"})` : "✗ NOT SET"}`);
+console.log(`  Team ID:    ${effectiveTeamId ? `${effectiveTeamId} (${LINEAR_TEAM_ID_ENV ? "env" : "saved in state"})` : "✗ NOT SET"}`);
+console.log(`  Project ID: ${effectiveProjectId ? `${effectiveProjectId} (${LINEAR_PROJECT_ID_ENV ? "env" : "saved in state"})` : "not set (optional)"}`);
+
+// Persist Linear config to state so agent remembers across sessions
+if (effectiveApiKey || effectiveTeamId || effectiveProjectId) {
+  state.linear_config = {
+    api_key: effectiveApiKey,
+    team_id: effectiveTeamId,
+    project_id: effectiveProjectId
+  };
+  state.delivery.updated_at = new Date().toISOString();
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+  console.log(`  Config saved to state — agent will remember next session.`);
+}
+
+if (!effectiveApiKey) {
+  console.log(`\n  To set up Linear, run this in your terminal:`);
+  console.log(`    export LINEAR_API_KEY="lin_api_..."`);
+  console.log(`    export LINEAR_TEAM_ID="${effectiveTeamId || "<your-team-id>"}"`);
+  if (effectiveProjectId) {
+    console.log(`    export LINEAR_PROJECT_ID="${effectiveProjectId}"`);
+  }
+  console.log(`  Or use the connectivity test to find your IDs:`);
+  console.log(`    export LINEAR_API_KEY="lin_api_..." && node scripts/check-linear-connectivity.js`);
+  console.log(`\n  Linear sync skipped.\n`);
+} else {
+  // Set env vars for child processes so they use the restored config
+  if (!LINEAR_API_KEY_ENV) process.env.LINEAR_API_KEY = effectiveApiKey;
+  if (!LINEAR_TEAM_ID_ENV) process.env.LINEAR_TEAM_ID = effectiveTeamId;
+  if (!LINEAR_PROJECT_ID_ENV) process.env.LINEAR_PROJECT_ID = effectiveProjectId;
+
   const syncScripts = [];
 
   const tasksWithoutLinear = tasks.filter((t) => !t.linear_id);
@@ -260,6 +300,10 @@ if (LINEAR_API_KEY) {
     });
   }
 
+  console.log(`\n${separator}`);
+  console.log(`  AUTO-SYNCING LINEAR...`);
+  console.log(`${separator}\n`);
+
   for (const { script, args, label } of syncScripts) {
     const scriptPath = path.resolve(__dirname, script);
     if (fs.existsSync(scriptPath)) {
@@ -278,8 +322,6 @@ if (LINEAR_API_KEY) {
       }
     }
   }
-} else {
-  console.log("  LINEAR_API_KEY not set — Linear sync skipped.\n");
 }
 
 console.log(`\n${separator}`);

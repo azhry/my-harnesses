@@ -61,7 +61,8 @@ docker push "$FULL_IMAGE"
 
 # ---- Phase 4: Create and apply k8s manifests ----
 echo "=== Phase 4: Applying Kubernetes manifests ==="
-NAMESPACE="${NAMESPACE:-default}"
+INFRA_NAMESPACE=$(read_infra "namespace" 2>/dev/null || echo "")
+NAMESPACE="${NAMESPACE:-${INFRA_NAMESPACE:-default}}"
 MANIFEST_DIR="$ROOT_DIR/templates/k8s"
 
 if [ -d "$MANIFEST_DIR" ]; then

@@ -12,6 +12,7 @@ const {
 const { execSync } = require("child_process");
 const { appendEvent, appendTokenUsageRow } = require("./lib/memory-store");
 const { checkContext } = require("./lib/context-check");
+const { getLinearConfig } = require("./lib/linear-config");
 const harnessRoot = path.resolve(__dirname, "..");
 
 const ALLOWED_TRANSITIONS = {
@@ -316,8 +317,8 @@ appendEvent(statePath, {
   tags: ["task_transition", taskId, nextStatus]
 });
 
-const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
-if (task.linear_id && LINEAR_API_KEY) {
+const linearCfg = getLinearConfig(state);
+if (task.linear_id && linearCfg.api_key) {
   setTimeout(() => {
     try {
       const syncScript = path.join(__dirname, "sync-linear-task.js");

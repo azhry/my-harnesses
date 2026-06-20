@@ -468,24 +468,54 @@ enabled, `git_flow.merged` are recorded.
 
 ## Workspace Root
 
-The harness sits inside a workspace containing one or more project repos.
-The workspace root is the **parent directory** of the harness folder.
+The workspace root is the **common ancestor directory** that contains both the
+harness folder AND all project repos. It may be 0, 1, or 2 levels above the
+harness depending on your project layout.
 
-If harness is at `agent-spec-ops/`, workspace root is `../` from it.
+The harness reads `workspace_root` from `workflow-state.json` first. If not set,
+it auto-detects by walking up from the harness until it finds a directory
+containing all `allowed_repos` from task scopes. If auto-detect fails, it
+defaults to the harness parent (`../`).
+
 **All code files for tasks go into the project repo under workspace root, NOT into the harness directory.**
 
-For example, with NLA-001 targeting `<repo-name>`:
-- Harness: `my-harnesses/agent-spec-ops/`
-- Workspace: `my-harnesses/`
-- Project: `my-harnesses/<repo-name>/`
-- Task file: `my-harnesses/<repo-name>/backend/Dockerfile`
+Typical layouts:
 
-When writing files from the harness CWD, prefix paths with `../<repo>/`:
-`../<repo-name>/backend/Dockerfile` — not `<repo-name>/backend/Dockerfile`.
+```
+# Layout A: project inside workspace (workspace_root = ../)
+Projects/
+  my-workspace/
+    agent-spec-ops/    ← harness
+    my-project/        ← project repo
+```
 
-**Always use `read-context.js` output to determine the actual repo name** — it
-extracts approved repos from task scopes and displays them at session start.
-Do not guess or hardcode repo names from memory.
+```
+# Layout B: project as sibling of workspace (workspace_root = ../../)
+Projects/
+  my-harnesses/
+    agent-spec-ops/    ← harness
+  nala-guru/           ← project repo
+```
+
+When writing files from the harness CWD, prefix paths with the relative path
+from harness to the project repo. For Layout B:
+`../../nala-guru/backend/Dockerfile` — not `nala-guru/backend/Dockerfile`.
+
+**Always use `read-context.js` output to determine the actual repo name and
+write path** — it extracts approved repos from task scopes and displays them
+at session start. Do not guess or hardcode.
+
+### Getting the write path right
+
+Run this check BEFORE writing any file:
+
+```bash
+node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> [ROLE]
+```
+
+This script auto-detects the workspace root and validates the target path
+against every task's `allowed_repos` and `allowed_paths`. If it says OK, the
+path is correct. If DENIED, the path is outside scope.
 
 ## Write Scope Enforcement
 

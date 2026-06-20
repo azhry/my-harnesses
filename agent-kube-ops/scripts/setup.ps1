@@ -74,8 +74,8 @@ if ($LASTEXITCODE -eq 0) {
 
 Write-Output ""
 Write-Output "=== Infrastructure Configuration ==="
-$infraFile = Join-Path $ROOT_DIR "docs" "infrastructure.md"
-$templateFile = Join-Path $ROOT_DIR "docs" "infrastructure.template.md"
+$infraFile = Join-Path (Join-Path $ROOT_DIR "docs") "infrastructure.md"
+$templateFile = Join-Path (Join-Path $ROOT_DIR "docs") "infrastructure.template.md"
 
 if (-not (Test-Path $infraFile)) {
   Write-Output "  infrastructure.md not found."

@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/utils.sh"
 
 FAILED=0
-NAMESPACE="${NAMESPACE:-default}"
+INFRA_NAMESPACE=$(read_infra "namespace" 2>/dev/null || echo "")
+NAMESPACE="${NAMESPACE:-${INFRA_NAMESPACE:-default}}"
 APP_NAME="${APP_NAME:-}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
 

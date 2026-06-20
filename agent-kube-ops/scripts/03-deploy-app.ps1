@@ -70,8 +70,9 @@ docker push $fullImage
 
 # ---- Phase 4: Create and apply k8s manifests ----
 Write-Output "=== Phase 4: Applying Kubernetes manifests ==="
-$namespace = if ($env:NAMESPACE) { $env:NAMESPACE } else { "default" }
-$manifestDir = Join-Path $ROOT_DIR "templates" "k8s"
+$infraNamespace = Read-Infra -Key "namespace"
+$namespace = if ($env:NAMESPACE) { $env:NAMESPACE } elseif ($infraNamespace) { $infraNamespace } else { "default" }
+$manifestDir = Join-Path (Join-Path $ROOT_DIR "templates") "k8s"
 
 if (Test-Path $manifestDir) {
   Get-ChildItem $manifestDir -Filter "*.yaml" | ForEach-Object {
@@ -98,3 +99,4 @@ $state = @{
 $state | ConvertTo-Json | Set-Content (Join-Path $ROOT_DIR "state" "current-deployment.json")
 
 Write-Output "PASS: Deployment submitted. Run scripts\04-healthcheck.ps1 to verify."
+exit 0

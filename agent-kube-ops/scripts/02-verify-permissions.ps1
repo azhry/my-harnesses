@@ -82,6 +82,15 @@ if ($LASTEXITCODE -eq 0) {
   $Script:FAILED = 1
 }
 
+$infraNamespace = Read-Infra -Key "namespace"
+$namespace = if ($env:NAMESPACE) { $env:NAMESPACE } elseif ($infraNamespace) { $infraNamespace } else { "" }
+
+if ($namespace) {
+  Write-Output "Checking permissions in namespace: $namespace"
+} else {
+  Write-Output "Checking permissions in all namespaces"
+}
+
 Write-Output "--- kubectl auth ---"
 $perms = @(
   @{Verb="create"; Resource="deployment"},
@@ -89,11 +98,16 @@ $perms = @(
   @{Verb="create"; Resource="ingress"}
 )
 foreach ($p in $perms) {
-  kubectl auth can-i $p.Verb $p.Resource --all-namespaces --request-timeout=5s *>$null
+  if ($namespace) {
+    kubectl auth can-i $p.Verb $p.Resource -n $namespace --request-timeout=5s *>$null
+  } else {
+    kubectl auth can-i $p.Verb $p.Resource --all-namespaces --request-timeout=5s *>$null
+  }
   if ($LASTEXITCODE -eq 0) {
     Write-Output "  PASS: Can $($p.Verb) $($p.Resource)"
   } else {
-    Write-Output "  FAIL: Missing permission to $($p.Verb) $($p.Resource)"
+    $nsName = if ($namespace) { $namespace } else { "all" }
+    Write-Output "  FAIL: Missing permission to $($p.Verb) $($p.Resource) (namespace: $nsName)"
     $Script:FAILED = 1
   }
 }
@@ -105,3 +119,4 @@ if ($Script:FAILED -ne 0) {
 }
 
 Write-Output "PASS: All permissions verified."
+exit 0

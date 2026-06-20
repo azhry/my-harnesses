@@ -75,14 +75,25 @@ else
   FAILED=1
 fi
 
+INFRA_NAMESPACE=$(read_infra "namespace" 2>/dev/null || echo "")
+NAMESPACE="${NAMESPACE:-$INFRA_NAMESPACE}"
+
+if [ -n "$NAMESPACE" ]; then
+  AUTH_ARGS=("-n" "$NAMESPACE")
+  echo "Checking permissions in namespace: $NAMESPACE"
+else
+  AUTH_ARGS=("--all-namespaces")
+  echo "Checking permissions in all namespaces"
+fi
+
 echo "--- kubectl auth ---"
-kubectl auth can-i create deployment --all-namespaces --request-timeout=5s 2>/dev/null && \
+kubectl auth can-i create deployment "${AUTH_ARGS[@]}" --request-timeout=5s 2>/dev/null && \
   echo "  PASS: Can create deployments" || \
   { echo "  FAIL: Missing permission to create deployments"; FAILED=1; }
-kubectl auth can-i create service --all-namespaces --request-timeout=5s 2>/dev/null && \
+kubectl auth can-i create service "${AUTH_ARGS[@]}" --request-timeout=5s 2>/dev/null && \
   echo "  PASS: Can create services" || \
   { echo "  FAIL: Missing permission to create services"; FAILED=1; }
-kubectl auth can-i create ingress --all-namespaces --request-timeout=5s 2>/dev/null && \
+kubectl auth can-i create ingress "${AUTH_ARGS[@]}" --request-timeout=5s 2>/dev/null && \
   echo "  PASS: Can create ingresses" || \
   { echo "  FAIL: Missing permission to create ingresses"; FAILED=1; }
 

@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { appendEvent } = require("./lib/memory-store");
+const { getLinearConfig } = require("./lib/linear-config");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -17,17 +18,18 @@ if (!args.stateFile) {
   process.exit(1);
 }
 
-const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
-const LINEAR_TEAM_ID = process.env.LINEAR_TEAM_ID || "";
 const GRAPHQL_URL = "https://api.linear.app/graphql";
+
+const statePath = path.resolve(args.stateFile);
+const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+const linearCfg = getLinearConfig(state);
+const LINEAR_API_KEY = linearCfg.api_key;
+const LINEAR_TEAM_ID = linearCfg.team_id;
 
 if (!LINEAR_API_KEY) {
   console.log("LINEAR_API_KEY not set — Linear sync skipped");
   process.exit(0);
 }
-
-const statePath = path.resolve(args.stateFile);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
 const deliveryId = state.delivery && state.delivery.id ? state.delivery.id : path.basename(path.dirname(statePath));
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
 

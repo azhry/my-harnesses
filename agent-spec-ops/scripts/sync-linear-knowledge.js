@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { appendEvent, loadKnowledgeCards } = require("./lib/memory-store");
+const { getLinearConfig } = require("./lib/linear-config");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -18,17 +19,22 @@ if (!args.stateFile) {
   process.exit(1);
 }
 
-const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
 const GRAPHQL_URL = "https://api.linear.app/graphql";
-
-if (!LINEAR_API_KEY) {
-  console.log("LINEAR_API_KEY not set — Linear sync skipped");
-  process.exit(0);
-}
 
 const statePath = path.resolve(args.stateFile);
 const runDir = path.dirname(statePath);
 const deliveryId = path.basename(runDir);
+
+let LINEAR_API_KEY = "";
+try {
+  const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  const cfg = getLinearConfig(state);
+  LINEAR_API_KEY = cfg.api_key;
+} catch {}
+if (!LINEAR_API_KEY) {
+  console.log("LINEAR_API_KEY not set — Linear sync skipped");
+  process.exit(0);
+}
 
 // Load knowledge cards from both project-wide and run-specific directories
 const cards = loadKnowledgeCards(runDir);

@@ -4,7 +4,8 @@ $ROOT_DIR = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 . "$ROOT_DIR\scripts\utils.ps1"
 
 $Script:FAILED = 0
-$namespace = if ($env:NAMESPACE) { $env:NAMESPACE } else { "default" }
+$infraNamespace = Read-Infra -Key "namespace"
+$namespace = if ($env:NAMESPACE) { $env:NAMESPACE } elseif ($infraNamespace) { $infraNamespace } else { "default" }
 $appName = if ($env:APP_NAME) { $env:APP_NAME } else { Read-DeploymentState -Key "app_name" }
 $timeoutSec = if ($env:TIMEOUT_SEC) { [int]$env:TIMEOUT_SEC } else { 120 }
 
@@ -72,3 +73,4 @@ if ($Script:FAILED -ne 0) {
 }
 
 Write-Output "PASS: All healthchecks passed."
+exit 0

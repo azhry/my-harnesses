@@ -7,6 +7,7 @@ const { execSync } = require("child_process");
 const { states, transitions, canTransition } = require("./lib/state-machine");
 const { appendEvent } = require("./lib/memory-store");
 const { checkContext } = require("./lib/context-check");
+const { getLinearConfig } = require("./lib/linear-config");
 
 const [file, nextState, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
@@ -172,37 +173,39 @@ if (errors.length) {
 const now = new Date().toISOString();
 
 if (currentState === "task_breakdown" && nextState === "waiting_for_delivery_plan_review") {
-  const loopCount = (state.loops || []).length;
-  state.loops = state.loops || [];
-  state.loops.push({
-    name: `loop_${loopCount + 1}`,
-    attempt: 1,
-    max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
-      ? state.agent_dispatch.max_attempts : 3,
-    last_failure: "",
-    status: "planned"
-  });
-}
-
-if (nextState === "implementation_in_progress") {
-  state.loops = state.loops || [];
-  const activeLoop = state.loops.find((l) => l.status === "planned");
-  if (activeLoop) {
-    activeLoop.status = "active";
-  } else {
+  if (Array.isArray(state.loops)) {
+    const loopCount = state.loops.length;
     state.loops.push({
-      name: `loop_${state.loops.length + 1}`,
+      name: `loop_${loopCount + 1}`,
       attempt: 1,
       max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
         ? state.agent_dispatch.max_attempts : 3,
       last_failure: "",
-      status: "active"
+      status: "planned"
     });
+  }
+}
+
+if (nextState === "implementation_in_progress") {
+  if (Array.isArray(state.loops)) {
+    const activeLoop = state.loops.find((l) => l.status === "planned");
+    if (activeLoop) {
+      activeLoop.status = "active";
+    } else {
+      state.loops.push({
+        name: `loop_${state.loops.length + 1}`,
+        attempt: 1,
+        max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
+          ? state.agent_dispatch.max_attempts : 3,
+        last_failure: "",
+        status: "active"
+      });
+    }
   }
 
   // Auto-create Linear issues for all planned tasks
-  const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
-  if (LINEAR_API_KEY) {
+  const linearCfg = getLinearConfig(state);
+  if (linearCfg.api_key) {
     const syncScript = path.join(__dirname, "sync-linear-task.js");
     if (fs.existsSync(syncScript)) {
       try {
@@ -219,10 +222,11 @@ if (nextState === "implementation_in_progress") {
 }
 
 if (nextState === "done") {
-  state.loops = state.loops || [];
-  const activeLoop = state.loops.find((l) => l.status === "active");
-  if (activeLoop) {
-    activeLoop.status = "completed";
+  if (Array.isArray(state.loops)) {
+    const activeLoop = state.loops.find((l) => l.status === "active");
+    if (activeLoop) {
+      activeLoop.status = "completed";
+    }
   }
 }
 
@@ -238,9 +242,9 @@ if (fs.existsSync(tokenUsagePath)) {
 }
 
 if (nextState === "knowledge_improvement" || nextState === "waiting_for_final_review") {
-  const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+  const linearCfg = getLinearConfig(state);
   const syncScript = path.join(__dirname, "sync-linear-knowledge.js");
-  if (LINEAR_API_KEY && fs.existsSync(syncScript)) {
+  if (linearCfg.api_key && fs.existsSync(syncScript)) {
     try {
       execSync(`node "${syncScript}" "${statePath}"`, {
         cwd: path.resolve(__dirname, ".."),

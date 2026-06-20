@@ -127,7 +127,7 @@ if (!remoteResult.ok || !remoteResult.stdout) {
   if (git.merge_request_url) {
     const mrNumber = git.merge_request_url.match(/(\d+)$/)?.[1];
     if (mrNumber) {
-      const mrResult = runGh(`pr view ${mrNumber} --json state,mergedAt,mergeCommit`);
+      const mrResult = runGh(`pr view ${mrNumber} --json state,mergedAt,mergeCommit,body`);
       if (mrResult.ok) {
         let mrData;
         try {
@@ -137,6 +137,18 @@ if (!remoteResult.ok || !remoteResult.stdout) {
         }
         if (mrData) {
           checks.push({ check: "merge_request_exists", status: "passed", detail: `PR #${mrNumber} exists on remote` });
+          const body = (mrData.body || "").trim();
+          if (!body || body.length < 50) {
+            const msg = `PR #${mrNumber} description is too short (${body.length} chars) — must be >= 50 chars with Summary, Changes, Impact, Test Instructions`;
+            checks.push({ check: "pr_description_quality", status: "failed", detail: msg });
+            failures.push(msg);
+          } else if (!body.includes("## Summary") && !body.includes("## Changes") && !body.includes("## Manual Test")) {
+            const msg = `PR #${mrNumber} description missing required sections (## Summary, ## Changes, ## Impact, ## Manual Test Instructions)`;
+            checks.push({ check: "pr_description_quality", status: "failed", detail: msg });
+            failures.push(msg);
+          } else {
+            checks.push({ check: "pr_description_quality", status: "passed", detail: `PR #${mrNumber} description has ${body.length} chars with required sections` });
+          }
           const state = mrData.state || "";
           if (git.merge_request_status === "merged" && state !== "MERGED") {
             const msg = `PR #${mrNumber} is ${state} but git_flow says merged`;

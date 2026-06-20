@@ -45,10 +45,10 @@ if (args.output) {
   const slug = args.taskId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "test";
   const outputPath = path.join(outputDir, `${slug}.log`);
   fs.writeFileSync(outputPath, args.output);
-  task.test.output_file = path.relative(path.dirname(statePath), outputPath).replace(/\\/g, "/");
+  const runRelPath = `runs/${state.delivery && state.delivery.id ? state.delivery.id : path.basename(path.dirname(statePath))}/test-output/${slug}.log`;
+  task.test.output_file = runRelPath;
 
-  const testOutputRef = `runs/${state.delivery && state.delivery.id ? state.delivery.id : path.basename(path.dirname(statePath))}/test-output/${slug}.log`;
-  task.test.evidence.push(testOutputRef);
+  task.test.evidence.push(runRelPath);
 }
 
 if (args.status === "passed") {

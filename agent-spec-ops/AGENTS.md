@@ -16,16 +16,35 @@ This dumps current state, task summary, Linear issue mappings, token totals,
 tool readiness status, and gate status. Read the output carefully before taking
 any action. Do not assume context from previous sessions carries over.
 
+**First-time project initialization:** If this is a brand-new delivery (no
+existing project repo yet), generate a project-level README.md after context
+recovery and before starting any implementation work. The project README
+documents the project's purpose, architecture, setup instructions, and how to
+use the harness:
+
+```bash
+node scripts/generate-project-readme.js runs/<DELIVERY_ID>/workflow-state.json \
+  --project-repo /path/to/project/repo \
+  --readme-title "My Project" \
+  --description "Brief project description"
+```
+
+This creates a `README.md` in the project repo root. Regenerate it when the
+project scope, architecture, or task graph changes significantly.
+
 ## Operating Rules
 
 - Treat `workflow-state.json` as the operational record.
 - Do not invent implementation scope in dev roles. If scope is missing or
   conflicting, record a blocker and route the loop back to Product Manager or
   Project Manager.
-- Frontend/backend dev tasks must follow the git lifecycle: create a feature
-  branch from `main`, implement the task, wait for successful test evidence,
-  push the feature branch, create a merge request back to `main`, then merge it
-  by default unless `git_flow.auto_merge` is explicitly false.
+- Frontend/backend dev tasks must follow the detailed Dev Git Lifecycle below:
+  feature branch from `main` → implement → commit → test → push → PR → merge.
+  **NEVER push commits directly to `main` or `master`.** All code changes must
+  go through a feature branch and merge request. Pushing to the default branch
+  is a hard violation — the enforce-git-lifecycle check will fail.
+- Every PR/MR must have a substantive description following the format in
+  the "Pull/Merge Request Description" section below.
 - Follow WIP=1 within each lane. A lane may only have one `active` task.
 - Every important claim needs evidence in `knowledge.findings[]` or
   `observability.verification_records[]`.
@@ -58,10 +77,13 @@ any action. Do not assume context from previous sessions carries over.
   `design_assembly` to fetch the actual design screens.** Use the Stitch API to
   retrieve generated screens and save them as HTML files under
   `runs/<DELIVERY_ID>/design-assets/`. Only then transition to `system_rules`.
-- **Every task in the task breakdown must have a non-empty `description` and at
-  least one `acceptance_criterion`.** Thin one-line tasks are not allowed. The
-  `validate-state.js` script enforces this before
-  `waiting_for_delivery_plan_review`.
+- **Every task in the task breakdown must have ALL of these fields populated:**
+  `description`, `definition_of_done` (≥1 item), `expected_changes` (≥1 item),
+  `verification` (≥1 item). The `validate-state.js` script enforces this before
+  `waiting_for_delivery_plan_review`. Thin one-line tasks with no DoD or
+  expected changes are rejected. When creating tasks in the state file or
+  syncing to Linear, always set these fields — the Linear sync
+  (`sync-linear-task.js`) reads them to build the Linear issue body.
 - **Never batch task status updates.** Each task must move through its lane
   state machine individually via `scripts/transition-task.js`. Do not edit
   `task.status` in the state file directly. Do not skip from `planned` to
@@ -209,8 +231,12 @@ These create:
 - `runs/<DELIVERY_ID>/api-docs.md` — field-level contract documentation
 - `runs/<DELIVERY_ID>/example-payloads.md` — JSON examples from contract fields
 
-Run all three before final review to ensure artifacts are complete. Each script
-records an `artifact_generated` event.
+For the **project repo itself**, use `scripts/generate-project-readme.js` to
+create or update a `README.md` in the project root. This documents the project's
+purpose, architecture, and setup instructions for human developers.
+
+Run all three delivery artifact scripts before final review to ensure artifacts
+are complete. Each script records an `artifact_generated` event.
 
 ## Recording Test Results (Phase 4)
 
@@ -450,21 +476,196 @@ After promoting knowledge and syncing to Linear, transition to
 
 ## Dev Git Lifecycle
 
-For every `frontend_dev` and `backend_dev` task:
+For every `frontend_dev` and `backend_dev` task — **you MUST follow these
+steps in order. Do not skip any step. Do not push to main directly.**
 
-1. Create the task feature branch from `main`.
-2. Implement only the approved task scope.
-3. Record changed files and implementation evidence.
-4. Run tests and record results with `scripts/record-test-results.js`.
-5. Push the feature branch.
-6. Create a merge request/pull request targeting `main`.
-7. Merge the merge request by default after merge checks pass.
-8. Record `git_flow` branch, push, test, MR, merge-check, and merge evidence.
-9. Run `scripts/enforce-git-lifecycle.js` to verify remote state before marking verified.
+### Step-by-step (run these exact commands):
 
-Do not mark a dev task `verified` until `git_flow.local_tests_passed`,
-`git_flow.pushed`, `git_flow.merge_request_url`, and, when auto-merge is
-enabled, `git_flow.merged` are recorded.
+```bash
+# 1. Create the task feature branch from main
+#    (branch naming is critical — use the delivery/task pattern)
+git checkout main
+git pull origin main
+git checkout -b delivery/<DELIVERY_ID>/<TASK_ID>
+
+# 2. Implement only the approved task scope.
+#    (write code in the project repo)
+
+# 3. Stage and commit with a descriptive message
+git add -A
+git commit -m "<TASK_ID>: <summary of changes>
+
+- What changed and why
+- Impact on related components
+- Manual test instructions"
+#    The commit message must reference the task ID.
+
+# 4. Run tests and record results
+#    (use record-test-results.js — see Recording Test Results section)
+node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json \
+  --task <TASK_ID> --status passed --command "npm test" \
+  --output "$(npm test 2>&1)"
+
+# 5. Push the feature branch (NOT main)
+git push origin delivery/<DELIVERY_ID>/<TASK_ID>
+
+# 6. Create a merge request targeting main
+#    IMPORTANT: Use the PR description format defined in the
+#    "Pull/Merge Request Description" section below.
+gh pr create \
+  --base main \
+  --head delivery/<DELIVERY_ID>/<TASK_ID> \
+  --title "[<DELIVERY_ID>] <TASK_ID>: <short title>" \
+  --body "$(cat templates/pull-request-template.md | \
+    sed 's/<TASK_ID>/<TASK_ID>/g; s/<DELIVERY_ID>/<DELIVERY_ID>/g')"
+#    Replace the template placeholders with actual content before creating.
+
+# 7. Record git_flow evidence in the workflow state
+#    (update workflow-state.json directly or via script)
+
+# 8. Merge the MR by default after merge checks pass
+#    (or set git_flow.auto_merge = true to auto-merge)
+
+# 9. Run enforce-git-lifecycle to verify remote state
+node scripts/enforce-git-lifecycle.js runs/<DELIVERY_ID>/workflow-state.json \
+  <TASK_ID> --repo-path /path/to/project/repo
+```
+
+### Rules:
+
+1. **Branch naming**: Always `delivery/<DELIVERY_ID>/<TASK_ID>`. Never use generic names like `feature/xyz` or `fix/abc`.
+2. **No direct pushes to main**: `git push origin main` is FORBIDDEN. The enforcement script will reject it.
+3. **Commit after every task**: Every task must result in at least one commit. Do not batch multiple tasks into one commit.
+4. **MR before merge**: Always create a pull request. Do not merge locally and push — the enforce-git-lifecycle check requires a PR URL.
+5. **PR description must be substantive** — see the "Pull/Merge Request Description" section for the required format.
+6. **Do not skip the git lifecycle**: If a task has no code changes (e.g., config-only), still record git evidence explaining why no branch was needed.
+
+### State fields to update after each step:
+
+| After step | Set these in `task.git_flow` |
+|------------|------------------------------|
+| 1 (branch) | `feature_branch`, `base_branch`, `target_branch`, `branch_created = true`, `branch_evidence` |
+| 3 (commit) | (commit is recorded in the branch) |
+| 4 (test) | `local_tests_passed = true`, `test_evidence` |
+| 5 (push) | `pushed = true`, `push_evidence` |
+| 6 (MR) | `merge_request_status = "created"`, `merge_request_url` |
+| 8 (merge) | `merge_checks_passed = true`, `merge_check_evidence`, `merged = true`, `merge_request_status = "merged"` |
+
+Do not mark a dev task `verified` until ALL the above `git_flow` fields are
+recorded. The `transition-task.js` script enforces this.
+
+## State Field Maintenance
+
+You MUST keep `workflow-state.json` fields current after every meaningful
+action. The monitor UI reads these fields — stale state misleads both human
+reviewers and future agent sessions.
+
+### Checklist: fields to update and when
+
+| Field | When to update | How |
+|-------|---------------|-----|
+| `tool_readiness.choices.product_tracker` | After tool readiness check | Edit directly or via `check-tool-readiness.js` |
+| `tool_readiness.choices.code_host` | After tool readiness check | Edit directly or via `check-tool-readiness.js` |
+| `tool_readiness.status` | After tool readiness check + human approval | Via `transition.js` |
+| `token-usage.csv` (via `record-token-usage.js`) | After each agent run, task, eval, or tool-heavy segment | `node scripts/record-token-usage.js ...` |
+| `task.git_flow.*` | After each git step (branch, test, push, MR, merge) | Edit directly — see Dev Git Lifecycle table |
+| `task.implementation.changed_files` | After implementation | Edit directly |
+| `task.implementation.evidence` | After implementation | Edit directly |
+| `task.test.*` | After running tests | Via `record-test-results.js` |
+| `task.status` | On each lane transition | **Always** via `transition-task.js` (never edit directly) |
+| `state.current_state` | Auto-updated by `transition-task.js` | Check it after transitions |
+| `memory.*` | After events, evals, remarks | Via respective record scripts |
+| `delivery.updated_at` | On any change | Auto-set by scripts, or set manually |
+| `artifacts.*` | After generating artifacts | Via artifact scripts or edit directly |
+| `human_instructions.*` | When sending/finalizing review instructions | Edit directly |
+| `gates.*` | When human approves/denies a gate | Edit directly |
+
+### Token usage must be recorded regularly
+
+After every task transition, eval, or tool-heavy segment, record actual
+token counts (if the runtime exposes them):
+
+```bash
+node scripts/record-token-usage.js runs/<DELIVERY_ID>/workflow-state.json \
+  --scope task --task <TASK_ID> \
+  --input-tokens <N> --output-tokens <N> --total-cost-usd <N> --cost-basis actual
+```
+
+If the runtime does not expose per-call token counts, record an estimated
+row at task boundaries so the monitor shows non-zero usage.
+
+### Context recovery at session start
+
+When resuming an existing delivery, always run context recovery first:
+
+```bash
+node scripts/read-context.js runs/<DELIVERY_ID>/workflow-state.json
+```
+
+This dumps current state, task summary, Linear mappings, token totals,
+tool readiness, and gate status. If any fields appear stale (e.g., old
+timestamps, zero token counts after known work), update them before
+proceeding.
+
+## Pull/Merge Request Description
+
+Every PR/MR must have a substantive description. The description is the
+primary communication artifact for human reviewers — it explains what
+changed, why, and how to verify it.
+
+### Required PR/MR description format
+
+```markdown
+## Summary
+
+<1-3 sentences describing what this PR does at a high level.>
+
+## Task
+
+- **Delivery:** <DELIVERY_ID>
+- **Task:** <TASK_ID>
+- **Description:** <task.description from workflow-state>
+
+## Changes
+
+- <file path>: <what changed and why>
+- <file path>: <what changed and why>
+
+## Impact
+
+- **Frontend/Backend:** <which system(s) are affected>
+- **Breaking:** Yes/No
+- **Dependencies:** <new or changed dependencies>
+- **Configuration:** <new env vars, config changes>
+
+## Manual Test Instructions
+
+1. <step-by-step instructions to verify the change>
+2. <include specific commands, URLs, payloads>
+
+## Related
+
+- Closes <TASK_ID>
+- Related MRs/Issues: <links>
+```
+
+### How to create a PR with this template
+
+```bash
+# Read the template, replace placeholders, then create
+gh pr create \
+  --base main \
+  --head delivery/<DELIVERY_ID>/<TASK_ID> \
+  --title "[<DELIVERY_ID>] <TASK_ID>: <short title>" \
+  --body "$(cat templates/pull-request-template.md | \
+    sed 's/<TASK_ID>/<TASK_ID>/g' | \
+    sed 's/<DELIVERY_ID>/<DELIVERY_ID>/g')"
+```
+
+Better yet, write the body inline by filling in the template sections
+with actual content from your task state. The description must be
+meaningful — empty or one-line PR descriptions will be rejected by
+human reviewers.
 
 ## Workspace Root
 

@@ -235,6 +235,17 @@ describe("transition-task.js", () => {
     result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "testing"]);
     assert.equal(result.exitCode, 0, "implemented -> testing");
 
+    result = runScript("record-token-usage.js", [
+      path.join(TMP, "workflow-state.json"),
+      "--scope", "task",
+      "--task", "FE-001",
+      "--input-tokens", "100",
+      "--output-tokens", "50",
+      "--total-cost-usd", "0.002",
+      "--cost-basis", "estimated"
+    ]);
+    assert.equal(result.exitCode, 0, "record token usage");
+
     result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "verified"]);
     assert.equal(result.exitCode, 0, "testing -> verified");
 

@@ -10,7 +10,7 @@ const {
   roleNames
 } = require("./lib/state-machine");
 const { execSync } = require("child_process");
-const { appendEvent, appendTokenUsageRow } = require("./lib/memory-store");
+const { appendEvent, appendTokenUsageRow, readCsv } = require("./lib/memory-store");
 const { checkContext } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
 const harnessRoot = path.resolve(__dirname, "..");
@@ -131,6 +131,38 @@ if (nextStatus === "verified") {
     if (!fs.existsSync(outputPath)) {
       errors.push(`${taskId}: task.test.output_file "${test.output_file}" does not exist on disk. Agent may have set it manually without running tests.`);
     }
+  }
+
+  // === TOKEN USAGE: auto-record estimated tokens if not already recorded ===
+  const tokenCsvPath = path.join(runDir, "token-usage.csv");
+  let tokenRows = [];
+  if (fs.existsSync(tokenCsvPath)) {
+    tokenRows = readCsv(tokenCsvPath).filter(
+      (r) => r.task_id === task.id && Number(r.total_tokens || 0) > 0
+    );
+  }
+  if (tokenRows.length === 0) {
+    const fileCount = Array.isArray(task.implementation && task.implementation.changed_files)
+      ? task.implementation.changed_files.length : 0;
+    const estimatedTokens = Math.max(500, fileCount * 1500);
+    const estimatedCost = (estimatedTokens / 1000000) * 3;
+    appendTokenUsageRow(statePath, {
+      scope: "task",
+      role: task.role,
+      task_id: task.id,
+      input_tokens: Math.round(estimatedTokens * 0.6),
+      output_tokens: Math.round(estimatedTokens * 0.4),
+      total_tokens: estimatedTokens,
+      total_cost_usd: estimatedCost,
+      cost_basis: "estimated",
+      notes: `Auto-recorded at verified transition (${fileCount} file(s), ~${estimatedTokens} tok)`
+    });
+    console.log(`  Token usage: auto-recorded ~${estimatedTokens} tok / $${estimatedCost} cost for ${taskId}`);
+    tokenRows = [{ total_tokens: estimatedTokens, total_cost_usd: estimatedCost }];
+  } else {
+    const totalTokens = tokenRows.reduce((s, r) => s + Number(r.total_tokens || 0), 0);
+    const totalCost = tokenRows.reduce((s, r) => s + Number(r.total_cost_usd || 0), 0);
+    console.log(`  Token usage: ${tokenRows.length} row(s), ${totalTokens} tokens, $${totalCost} cost for ${taskId}`);
   }
 
   // === SCOPE ENFORCEMENT: changed_files must match approved repos ===
@@ -281,19 +313,6 @@ state.log.push({
 });
 
 fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
-
-appendTokenUsageRow(statePath, {
-  scope: "task",
-  role: task.role,
-  task_id: taskId,
-  loop: task.loop ? task.loop.name || `${state.loops ? state.loops.length : 0}` : "",
-  input_tokens: 0,
-  output_tokens: 0,
-  total_tokens: 0,
-  total_cost_usd: 0,
-  cost_basis: "unknown",
-  notes: `Transition step: ${currentStatus} -> ${nextStatus}`
-});
 
 console.log(`OK: ${taskId} ${currentStatus} -> ${nextStatus}`);
 

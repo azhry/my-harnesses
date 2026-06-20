@@ -73,10 +73,22 @@ project scope, architecture, or task graph changes significantly.
   - Project Manager: `runs/<DELIVERY_ID>/task-breakdown.md`
   - Dev/Test roles: the project repo's approved paths (not harness files)
   - Orchestrator: `runs/<DELIVERY_ID>/workflow-state.json` and memory files
-- **After writing the Stitch prompt in `ui_design_prompt`, transition to
-  `design_assembly` to fetch the actual design screens.** Use the Stitch API to
-  retrieve generated screens and save them as HTML files under
-  `runs/<DELIVERY_ID>/design-assets/`. Only then transition to `system_rules`.
+- **Design assembly requires a human gate — do not skip it.** The flow is:
+  `ui_design_prompt` → `waiting_for_design_stitch` (human gate) →
+  `design_assembly` → `system_rules`. After writing the Stitch prompt, you
+  MUST transition to `waiting_for_design_stitch` and present the prompt to the
+  human. Ask them to provide a Stitch project URL + `GOOGLE_STITCH_API_KEY`
+  (or at minimum a project ID). Once the gate is approved, transition to
+  `design_assembly` and run `fetch-stitch-designs.js` to fetch the screens.
+  **Google Stitch uses JSON-RPC, not REST** — always use
+  `fetch-stitch-designs.js`, never `curl` or generic HTTP tools. Check the
+  script's exit code and error output — if it reports JSON-RPC errors like
+  `{"error":{"code":-32602,"message":"Tools Call name is not found"}}`, the
+  fetch FAILED. Do NOT claim "designs exist" on error responses. Use
+  `--list-methods` to probe available methods, then retry with `--method`.
+  Save HTML files under `runs/<DELIVERY_ID>/design-assets/`. Only after
+  successful fetch, transition to `system_rules`. See
+  `docs/design-assembly.md` for the detailed process.
 - **Every task in the task breakdown must have ALL of these fields populated:**
   `description`, `definition_of_done` (≥1 item), `expected_changes` (≥1 item),
   `verification` (≥1 item). The `validate-state.js` script enforces this before
@@ -84,6 +96,25 @@ project scope, architecture, or task graph changes significantly.
   expected changes are rejected. When creating tasks in the state file or
   syncing to Linear, always set these fields — the Linear sync
   (`sync-linear-task.js`) reads them to build the Linear issue body.
+- **After creating ALL tasks, you MUST sync them to Linear before transitioning
+  to `waiting_for_delivery_plan_review`.** This is a hard requirement — the
+  `transition.js` script will reject the transition if any task lacks a
+  `linear_id`. Run:
+  ```bash
+  node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --create
+  ```
+  Do NOT assume syncing happens automatically — the auto-sync was removed
+  because it failed silently and gave false confidence. You must run this
+  command explicitly and verify it produces no errors. If it fails, diagnose
+  the issue (missing `LINEAR_API_KEY`, wrong team ID, network) and retry.
+  Do NOT proceed to the transition until every task has a `linear_id`.
+- **Record token and cost usage after every meaningful action — this is
+  enforced before `verified`.** The `transition-task.js` script now rejects
+  `testing → verified` if no non-zero token usage exists for the task. Run
+  `scripts/record-token-usage.js` with real token counts after each task
+  implementation, test run, eval, or tool-heavy session. Do not rely on
+  auto-generated zero rows — they have been removed from the transition
+  script.
 - **Never batch task status updates.** Each task must move through its lane
   state machine individually via `scripts/transition-task.js`. Do not edit
   `task.status` in the state file directly. Do not skip from `planned` to
@@ -194,6 +225,102 @@ npm run monitor
 
 The monitor reads `runs/`, `history/`, and `knowledge/cards/`; it does not
 change workflow state.
+
+## Design Assembly (Google Stitch)
+
+The design assembly flow ensures UI screens are generated via Google Stitch
+before implementation begins. **Do not skip this flow** — the state machine
+enforces it, and implementation tasks depend on design assets.
+
+**Google Stitch uses JSON-RPC, not REST.** The fetch script sends JSON-RPC POST
+requests by default. Do NOT use `curl`, `fetch`, or generic HTTP tools — always
+use `fetch-stitch-designs.js`.
+
+### CRITICAL RULE: Never claim success on API errors
+
+After running `fetch-stitch-designs.js`, you MUST check:
+1. The **exit code** (0 = success, non-zero = failure)
+2. The **error output** — if the script reports JSON-RPC errors like
+   `{"error":{"code":-32602,"message":"Tools Call name is not found"}}`,
+   designs were NOT fetched. Do NOT claim "designs exist" or "fetch succeeded".
+3. The `status` field in `artifacts.design_assets` — it will be `failed` or
+   `partial` if errors occurred.
+
+If the fetch fails, use `--list-methods` to probe available JSON-RPC methods,
+then retry with `--method <name>`.
+
+### Two paths
+
+The human may provide:
+- **Path A (preferred):** A Stitch project URL + API key — use `fetch-stitch-designs.js --url`
+- **Path B:** Only a Stitch project ID — use `fetch-stitch-designs.js --project-id --list-methods`
+
+### Step-by-step flow
+
+```
+ui_design_prompt → waiting_for_design_stitch → design_assembly → system_rules
+```
+
+1. **`ui_design_prompt`** — Product Manager writes the Stitch prompt using the
+   template at `templates/stitch-ui-prompt.md` and saves the result to
+   `runs/<DELIVERY_ID>/stitch-ui-prompt.md`. Update `artifacts.stitch_prompt`
+   in the workflow state.
+
+2. **Transition to `waiting_for_design_stitch`** — do NOT go directly to
+   `design_assembly`. Present the Stitch prompt to the human and ask them to
+   generate screens in Google Stitch, then provide:
+   - The Stitch project URL
+   - Their Google Stitch API key (`GOOGLE_STITCH_API_KEY`)
+   If they only provide a project ID, use `--project-id` + `--list-methods`
+   to discover the correct JSON-RPC method.
+
+3. **Wait for human approval** — the `design_stitch` gate must be approved
+   before proceeding.
+
+4. **`design_assembly`** — after the gate approves, transition to
+   `design_assembly`. Fetch the generated screens using:
+
+   ```bash
+   # Path A: Human provided URL + API key
+   GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+     runs/<DELIVERY_ID>/workflow-state.json --url <stitch_url>
+
+   # If that fails, probe available JSON-RPC methods
+   GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+     runs/<DELIVERY_ID>/workflow-state.json --url <stitch_url> --list-methods
+
+   # Then retry with the correct method
+   GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+     runs/<DELIVERY_ID>/workflow-state.json --url <stitch_url> --method <method>
+
+   # Path B: Human provided only a project ID
+   GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+     runs/<DELIVERY_ID>/workflow-state.json --project-id <id> --list-methods
+   ```
+
+   The script saves each screen as a standalone HTML file:
+   `runs/<DELIVERY_ID>/design-assets/<NN>-<screen-name>.html`
+   and updates `artifacts.design_assets` in the workflow state.
+
+   **Check the exit code and error output before proceeding.** If the script
+   exits non-zero or reports JSON-RPC errors, do NOT continue to system_rules.
+
+5. **Record design assets** — the script updates `artifacts.design_assets`
+   automatically. Verify the status is `ready_for_review`, not `failed`.
+
+6. **Transition to `system_rules`** — only after all design assets are saved
+   and recorded.
+
+### Enforcement
+
+- The `transition.js` script requires `design_stitch` gate approval before
+  allowing `design_assembly`.
+- All design assets must go to `runs/<DELIVERY_ID>/design-assets/` — never to
+  `/tmp`, the harness root, or anywhere else.
+- The `fetch-stitch-designs.js` script exits with code 1 on failure — agents
+  MUST check exit codes and never claim success on API errors.
+- See `docs/design-assembly.md` for the detailed process, naming conventions,
+  and evidence requirements.
 
 ## Measurement
 
@@ -580,10 +707,14 @@ reviewers and future agent sessions.
 | `human_instructions.*` | When sending/finalizing review instructions | Edit directly |
 | `gates.*` | When human approves/denies a gate | Edit directly |
 
-### Token usage must be recorded regularly
+### Token usage must be recorded regularly — enforced at verified
 
-After every task transition, eval, or tool-heavy segment, record actual
-token counts (if the runtime exposes them):
+**This is now enforced.** The `testing → verified` transition requires at
+least one non-zero token usage row for the task. If you skip token recording,
+the transition will be rejected.
+
+After every task implementation, test run, eval, or tool-heavy segment, record
+actual token counts:
 
 ```bash
 node scripts/record-token-usage.js runs/<DELIVERY_ID>/workflow-state.json \
@@ -591,8 +722,19 @@ node scripts/record-token-usage.js runs/<DELIVERY_ID>/workflow-state.json \
   --input-tokens <N> --output-tokens <N> --total-cost-usd <N> --cost-basis actual
 ```
 
+If the runtime exposes token counts per API call, record them immediately
+after the call. If it only exposes per-session or per-run totals, record a
+cumulative row at the end of the session.
+
 If the runtime does not expose per-call token counts, record an estimated
-row at task boundaries so the monitor shows non-zero usage.
+row at task boundaries so the monitor shows non-zero usage:
+
+```bash
+node scripts/record-token-usage.js runs/<DELIVERY_ID>/workflow-state.json \
+  --scope task --task <TASK_ID> \
+  --total-tokens <N> --total-cost-usd <N> --cost-basis estimated \
+  --notes "Estimated from session totals"
+```
 
 ### Context recovery at session start
 

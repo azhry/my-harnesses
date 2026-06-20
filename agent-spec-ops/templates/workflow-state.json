@@ -273,6 +273,13 @@
       "decided_at": "",
       "evidence": []
     },
+    "design_stitch": {
+      "status": "not_ready",
+      "approver": "",
+      "approval_note": "",
+      "decided_at": "",
+      "evidence": []
+    },
     "product_review": {
       "status": "not_ready",
       "approver": "",
@@ -297,6 +304,19 @@
   },
   "human_instructions": {
     "tool_readiness_review": {
+      "status": "not_prepared",
+      "audience": [],
+      "instructions": "",
+      "decision_options": [
+        "approve",
+        "approve_with_notes",
+        "request_changes",
+        "block"
+      ],
+      "questions": [],
+      "evidence": []
+    },
+    "design_stitch": {
       "status": "not_prepared",
       "audience": [],
       "instructions": "",

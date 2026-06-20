@@ -121,15 +121,61 @@ if (nextState === "backend_dev" && currentState === "implementation_in_progress"
   }
 }
 
-if (nextState === "waiting_for_final_review") {
-  const instructions = state.human_instructions && state.human_instructions.final_review;
+const GATES_WITH_INSTRUCTIONS = {
+  waiting_for_tool_readiness_review: "tool_readiness_review",
+  waiting_for_design_stitch: "design_stitch",
+  waiting_for_product_review: "product_review",
+  waiting_for_delivery_plan_review: "delivery_plan_review",
+  waiting_for_final_review: "final_review"
+};
+
+const gateKey = GATES_WITH_INSTRUCTIONS[nextState];
+if (gateKey) {
+  const instructions = state.human_instructions && state.human_instructions[gateKey];
   if (!instructions || !instructions.instructions || !instructions.instructions.trim()) {
-    errors.push("Cannot transition to waiting_for_final_review: human_instructions.final_review.instructions is empty. Generate review instructions first using scripts/record-event.js with type=human_instruction.");
+    errors.push(`Cannot transition to ${nextState}: human_instructions.${gateKey}.instructions is empty. Generate review instructions first using scripts/record-event.js with type=human_instruction.`);
   }
   if (!instructions || instructions.status !== "sent") {
-    errors.push("Cannot transition to waiting_for_final_review: human_instructions.final_review.status must be 'sent'. Use scripts/record-event.js to record that instructions were sent to the reviewer.");
+    errors.push(`Cannot transition to ${nextState}: human_instructions.${gateKey}.status must be 'sent'. Use scripts/record-event.js to record that instructions were sent to the reviewer.`);
   }
+}
 
+// === HUMAN GATE APPROVAL ENFORCEMENT: prevent agent from self-approving ===
+const GATE_APPROVAL_MAP = {
+  waiting_for_tool_readiness_review: "tool_readiness_review",
+  waiting_for_design_stitch: "design_stitch",
+  waiting_for_product_review: "product_review",
+  waiting_for_delivery_plan_review: "delivery_plan_review",
+  waiting_for_final_review: "final_review"
+};
+const APPROVED_NEXT = {
+  waiting_for_tool_readiness_review: "knowledge_discovery",
+  tool_readiness_revision: "tool_readiness",
+  waiting_for_design_stitch: "design_assembly",
+  waiting_for_product_review: "product_approved",
+  product_revision: "product_requirements",
+  waiting_for_delivery_plan_review: "delivery_plan_approved",
+  task_revision: "task_breakdown",
+  waiting_for_final_review: "done"
+};
+
+// If transitioning FROM a human gate state TO its approved next state,
+// require the gate to actually be approved by a human
+if (GATE_APPROVAL_MAP[currentState] && APPROVED_NEXT[currentState] === nextState) {
+  const gateName = GATE_APPROVAL_MAP[currentState];
+  const gate = state.gates && state.gates[gateName];
+  if (!gate || gate.status !== "approved") {
+    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" is not approved. Status: ${gate ? gate.status : "not_found"}. You must present the review to the human and wait for them to approve it.`);
+  }
+  if (!gate || !gate.approver || gate.approver === "") {
+    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no approver. A human must explicitly approve this gate.`);
+  }
+  if (!gate || !gate.decided_at) {
+    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no decided_at timestamp. The human decision must be recorded with a timestamp.`);
+  }
+}
+
+if (nextState === "waiting_for_final_review") {
   const integrityScript = path.join(__dirname, "check-harness-integrity.js");
   if (fs.existsSync(integrityScript) && !process.env.SKIP_INTEGRITY_CHECK) {
     try {
@@ -158,6 +204,22 @@ if (nextState === "waiting_for_final_review") {
           errors.push(`Integration (docker compose) verification failed at final review:\n${output}`);
         }
       }
+    }
+  }
+}
+
+// === LINEAR ENFORCEMENT: tasks MUST have linear_ids before delivery plan review ===
+if (currentState === "task_breakdown" && nextState === "waiting_for_delivery_plan_review") {
+  const tasks = Array.isArray(state.task_graph && state.task_graph.tasks)
+    ? state.task_graph.tasks : [];
+  const tasksWithoutLinear = tasks.filter(t => !t.linear_id);
+  if (tasksWithoutLinear.length > 0) {
+    const ids = tasksWithoutLinear.map(t => t.id).join(", ");
+    const linearCfg = getLinearConfig(state);
+    if (linearCfg.api_key) {
+      errors.push(`Tasks missing Linear IDs: ${ids}. Run "node scripts/sync-linear-task.js ${path.relative(process.cwd(), statePath).replace(/\\/g, "/")} --create" to create Linear issues, then retry.`);
+    } else {
+      errors.push(`Tasks missing Linear IDs: ${ids}. LINEAR_API_KEY is not configured. Either set the env var and run sync-linear-task.js --create, or set linear_id on each task manually before retrying.`);
     }
   }
 }

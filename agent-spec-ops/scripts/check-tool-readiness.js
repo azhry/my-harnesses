@@ -4,7 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
-const { spawnSync } = require("child_process");
+const { spawnSync, execSync } = require("child_process");
 const {
   ensureRunMemory,
   loadJson,
@@ -14,6 +14,7 @@ const {
 const args = parseArgs(process.argv.slice(2));
 const stateFile = args.stateFile;
 const nonInteractive = args.nonInteractive;
+const verifyMode = args.verify;
 const productTrackerArg = args.productTracker;
 const codeHostArg = args.codeHost;
 
@@ -39,6 +40,7 @@ function parseArgs(rawArgs) {
   const parsed = {
     stateFile: "",
     nonInteractive: false,
+    verify: false,
     productTracker: "",
     codeHost: ""
   };
@@ -47,6 +49,10 @@ function parseArgs(rawArgs) {
     const arg = rawArgs[index];
     if (arg === "--non-interactive") {
       parsed.nonInteractive = true;
+      continue;
+    }
+    if (arg === "--verify") {
+      parsed.verify = true;
       continue;
     }
     if (arg === "--product-tracker") {
@@ -332,6 +338,100 @@ function aggregateStatus(capabilities, frontend, backend) {
   return "ready";
 }
 
+function getTokenForProvider(tokenEnvs) {
+  for (const name of tokenEnvs) {
+    if (typeof process.env[name] === "string" && process.env[name].trim() !== "") {
+      return { env: name, value: process.env[name].trim() };
+    }
+  }
+  return null;
+}
+
+function verifyLinearConnectivity() {
+  const tokenInfo = getTokenForProvider(["LINEAR_API_KEY", "LINEAR_ACCESS_TOKEN"]);
+  if (!tokenInfo) {
+    return { status: "missing", detail: "No Linear API key found in environment" };
+  }
+  try {
+    const result = execSync(
+      `node -e "const https=require('https');const opts={hostname:'api.linear.app',path:'/graphql',method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer ' + process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || ''}};const req=https.request(opts,res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{const j=JSON.parse(d);if(j.data&&j.data.viewer)process.exit(0);else process.exit(1)});});req.on('error',()=>process.exit(1));req.write(JSON.stringify({query:'{viewer{id name}}'}));req.end();"`,
+      { encoding: "utf8", timeout: 10000, stdio: "pipe" }
+    );
+    return { status: "connected", detail: "Linear API responded successfully" };
+  } catch (e) {
+    const msg = (e.stdout || e.stderr || e.message || "").trim().slice(0, 200);
+    return { status: "failed", detail: `Linear API connection failed: ${msg}` };
+  }
+}
+
+function verifyGithubConnectivity() {
+  const tokenInfo = getTokenForProvider(["GITHUB_TOKEN", "GH_TOKEN"]);
+  if (!tokenInfo) {
+    return { status: "missing", detail: "No GitHub token found in environment" };
+  }
+  const results = [];
+  try {
+    const ghResult = execSync("gh auth status", { encoding: "utf8", timeout: 10000, stdio: "pipe" });
+    results.push({ method: "gh auth", status: "connected", detail: (ghResult || "").trim().slice(0, 200) });
+  } catch (e) {
+    results.push({ method: "gh auth", status: "failed", detail: "gh CLI not authenticated or not available" });
+  }
+  try {
+    const apiResult = execSync(
+      `node -e "const https=require('https');https.get('https://api.github.com/user',{headers:{'User-Agent':'readiness-check','Authorization':'Bearer ' + (process.env.GITHUB_TOKEN||process.env.GH_TOKEN||'')}},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{const j=JSON.parse(d);if(j.login)process.exit(0);else process.exit(1);});});"`,
+      { encoding: "utf8", timeout: 10000, stdio: "pipe" }
+    );
+    results.push({ method: "api.github.com/user", status: "connected", detail: "GitHub API authenticated" });
+  } catch (e) {
+    results.push({ method: "api.github.com/user", status: "failed", detail: "GitHub API call failed" });
+  }
+  return {
+    status: results.some(r => r.status === "connected") ? "connected" : "failed",
+    detail: results.map(r => `[${r.method}] ${r.status}: ${r.detail}`).join("; ")
+  };
+}
+
+function verifyGitlabConnectivity() {
+  const tokenInfo = getTokenForProvider(["GITLAB_TOKEN", "GITLAB_PAT", "GRAB_GITLAB_ACCESS_TOKEN"]);
+  if (!tokenInfo) {
+    return { status: "missing", detail: "No GitLab token found in environment" };
+  }
+  try {
+    const result = execSync(
+      `node -e "const https=require('https');https.get('https://gitlab.com/api/v4/user',{headers:{'Authorization':'Bearer ' + (process.env.GITLAB_TOKEN||process.env.GITLAB_PAT||process.env.GRAB_GITLAB_ACCESS_TOKEN||'')}},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{const j=JSON.parse(d);if(j.id)process.exit(0);else process.exit(1);});});"`,
+      { encoding: "utf8", timeout: 10000, stdio: "pipe" }
+    );
+    return { status: "connected", detail: "GitLab API authenticated" };
+  } catch (e) {
+    return { status: "failed", detail: "GitLab API call failed" };
+  }
+}
+
+function verifyAtlassianConnectivity() {
+  const tokenInfo = getTokenForProvider(["ATLASSIAN_API_TOKEN"]);
+  const email = process.env.ATLASSIAN_EMAIL;
+  const baseUrl = process.env.ATLASSIAN_BASE_URL || process.env.ATLASSIAN_SITE_URL;
+  if (!tokenInfo || !email || !baseUrl) {
+    return { status: "missing", detail: "Atlassian token, email, or base URL missing" };
+  }
+  try {
+    const result = execSync(
+      `node -e "const https=require('https');const auth=Buffer.from(encodeURIComponent(process.env.ATLASSIAN_EMAIL)+':'+(process.env.ATLASSIAN_API_TOKEN||'')).toString('base64');https.get(process.env.ATLASSIAN_BASE_URL+'/rest/api/3/myself',{headers:{'Authorization':'Basic '+auth}},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{if(res.statusCode===200)process.exit(0);else process.exit(1);});});"`,
+      { encoding: "utf8", timeout: 10000, stdio: "pipe" }
+    );
+    return { status: "connected", detail: "Atlassian API authenticated" };
+  } catch (e) {
+    return { status: "failed", detail: "Atlassian API call failed" };
+  }
+}
+
+const VERIFIERS = {
+  linear: verifyLinearConnectivity,
+  atlassian: verifyAtlassianConnectivity,
+  github: verifyGithubConnectivity,
+  gitlab: verifyGitlabConnectivity
+};
+
 function printSummary(readiness) {
   console.log("\nTool readiness summary");
   console.log(`- Product tracker: ${readiness.choices.product_tracker}`);
@@ -394,6 +494,72 @@ function updateStateFile(file, readiness) {
 }
 
 async function main() {
+  // === VERIFY MODE: test connectivity for already-configured providers ===
+  if (verifyMode) {
+    const statePath = path.resolve(stateFile);
+    let state = null;
+    try {
+      state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    } catch (e) {
+      console.error(`Cannot read state file: ${statePath}`);
+      process.exit(1);
+    }
+    const choices = state.tool_readiness && state.tool_readiness.choices;
+    const productChoice = (productTrackerArg || (choices && choices.product_tracker) || inferProductTracker());
+    const codeChoice = (codeHostArg || (choices && choices.code_host) || inferCodeHost());
+    console.log(`Verifying connectivity for: product_tracker=${productChoice}, code_host=${codeChoice}\n`);
+
+    const productVerifier = VERIFIERS[productChoice];
+    const codeVerifier = VERIFIERS[codeChoice];
+    const productResult = productVerifier ? productVerifier() : { status: "unknown", detail: `No verifier for ${productChoice}` };
+    const codeResult = codeVerifier ? codeVerifier() : { status: "unknown", detail: `No verifier for ${codeChoice}` };
+    const frontend = frontendReadiness();
+    const backend = backendReadiness();
+
+    console.log(`- ${productChoice}: ${productResult.status} — ${productResult.detail}`);
+    console.log(`- ${codeChoice}: ${codeResult.status} — ${codeResult.detail}`);
+    console.log(`- Frontend: ${frontend.status}`);
+    console.log(`- Backend: ${backend.status}`);
+
+    const allOk = productResult.status === "connected" && codeResult.status === "connected";
+    const overallStatus = allOk ? "ready" :
+      productResult.status === "connected" || codeResult.status === "connected" ? "partial" : "blocked";
+
+    const readiness = {
+      status: overallStatus,
+      checked_at: new Date().toISOString(),
+      choices: { product_tracker: productChoice, code_host: codeChoice },
+      capabilities: [
+        {
+          name: "product_tracker",
+          provider: productChoice,
+          required: true,
+          status: allOk ? "available" : productResult.status === "connected" ? "partial" : "missing",
+          verification: productResult.detail,
+          evidence: [productResult.detail],
+          blocker: productResult.status === "connected" ? "" : `${productChoice} not reachable`
+        },
+        {
+          name: "code_host",
+          provider: codeChoice,
+          required: true,
+          status: allOk ? "available" : codeResult.status === "connected" ? "partial" : "missing",
+          verification: codeResult.detail,
+          evidence: [codeResult.detail],
+          blocker: codeResult.status === "connected" ? "" : `${codeChoice} not reachable`
+        }
+      ],
+      frontend,
+      backend,
+      verification: { product_connectivity: productResult, code_connectivity: codeResult }
+    };
+
+    console.log(`\nOverall: ${readiness.status}`);
+    updateStateFile(stateFile, readiness);
+    if (readiness.status === "blocked") process.exit(2);
+    return;
+  }
+
   const productTracker = await chooseProvider("product tracker", PRODUCT_TRACKERS, productTrackerArg, inferProductTracker());
   const codeHost = await chooseProvider("code host", CODE_HOSTS, codeHostArg, inferCodeHost());
 

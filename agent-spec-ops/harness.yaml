@@ -34,6 +34,9 @@ harness_model:
         - scripts/record-token-usage.js
         - scripts/update-local-task.js
         - scripts/monitor-runs.js
+        - scripts/check-harness-integrity.js
+        - scripts/check-linear-connectivity.js
+        - scripts/verify-integration.js
         - scripts/transition.js
         - scripts/validate-state.js
         - scripts/validate-harness.js

@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 const { loadJson, readNdjson, readCsv } = require("./lib/memory-store");
 
 const file = process.argv[2];
@@ -110,6 +111,27 @@ if (linearIds.length) {
 }
 
 console.log(`\n${subSep}`);
+console.log("  APPROVED REPOS");
+console.log(`${subSep}`);
+
+const uniqueRepos = new Set();
+for (const t of tasks) {
+  if (t.scope && Array.isArray(t.scope.allowed_repos)) {
+    for (const repo of t.scope.allowed_repos) {
+      uniqueRepos.add(repo);
+    }
+  }
+}
+if (uniqueRepos.size > 0) {
+  for (const repo of [...uniqueRepos].sort()) {
+    console.log(`  ${repo}`);
+  }
+  console.log(`\n  All task files go to ../${[...uniqueRepos][0]}/ not into harness dirs.`);
+} else {
+  console.log(`  (none defined in task scopes — check workspace root)`);
+}
+
+console.log(`\n${subSep}`);
 console.log("  TASKS SUMMARY");
 console.log(`${subSep}`);
 
@@ -202,6 +224,64 @@ fs.writeFileSync(path.join(markerDir, ".session.json"), JSON.stringify({
 }, null, 2) + "\n");
 
 console.log(`\n${separator}`);
-console.log(`  Run this at session start to restore context.`);
-console.log(`  Agent: read the output carefully before taking any action.`);
+console.log(`  AUTO-SYNCING LINEAR...`);
+console.log(`${separator}\n`);
+
+const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+if (LINEAR_API_KEY) {
+  const syncScripts = [];
+
+  const tasksWithoutLinear = tasks.filter((t) => !t.linear_id);
+  if (tasksWithoutLinear.length > 0) {
+    syncScripts.push({
+      script: "sync-linear-task.js",
+      args: [statePath, "--create"],
+      label: `Create Linear issues for ${tasksWithoutLinear.length} task(s) without IDs`
+    });
+  }
+
+  syncScripts.push({
+    script: "sync-linear-task.js",
+    args: [statePath],
+    label: `Sync ${tasks.length} task(s) status to Linear`
+  });
+
+  syncScripts.push({
+    script: "sync-linear-knowledge.js",
+    args: [statePath],
+    label: "Sync knowledge cards to Linear documents"
+  });
+
+  if (currentState === "waiting_for_final_review" || currentState === "done") {
+    syncScripts.push({
+      script: "sync-linear-status.js",
+      args: [statePath],
+      label: "Sync delivery status to Linear project"
+    });
+  }
+
+  for (const { script, args, label } of syncScripts) {
+    const scriptPath = path.resolve(__dirname, script);
+    if (fs.existsSync(scriptPath)) {
+      try {
+        console.log(`  → ${label}...`);
+        execSync(`node "${scriptPath}" ${args.map(a => `"${a}"`).join(" ")}`, {
+          cwd: HARNESS_ROOT,
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 30000
+        });
+        console.log(`  ✓ ${label}`);
+      } catch (e) {
+        const msg = (e.stdout || e.stderr || e.message || "").trim().slice(0, 200);
+        console.log(`  ⚠ ${label} had issues: ${msg}`);
+      }
+    }
+  }
+} else {
+  console.log("  LINEAR_API_KEY not set — Linear sync skipped.\n");
+}
+
+console.log(`\n${separator}`);
+console.log(`  Context recovery complete. Read the output above before acting.`);
 console.log(`${separator}\n`);

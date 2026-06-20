@@ -74,7 +74,10 @@ function pathEquals(a, b) {
 
 const errors = [];
 
-const workspaceRoot = path.resolve(harnessRoot, "..");
+const stateWorkspaceRoot = state.workspace_root || "";
+const workspaceRoot = stateWorkspaceRoot
+  ? path.resolve(harnessRoot, stateWorkspaceRoot)
+  : path.resolve(harnessRoot, "..");
 
 if (runDir && isWithin(runDir, resolvedTarget)) {
   console.log(`OK: ${targetPath} is within run directory (runs/${deliveryId}/)`);
@@ -117,6 +120,8 @@ if (errors.length) {
 
 const taskScopes = [];
 const tasks = (state.task_graph && state.task_graph.tasks) || [];
+const allAllowedRepos = new Set();
+
 for (const t of tasks) {
   if (t.scope && Array.isArray(t.scope.allowed_paths)) {
     for (const allowedPath of t.scope.allowed_paths) {
@@ -126,11 +131,27 @@ for (const t of tasks) {
       }
     }
   }
+  if (t.scope && Array.isArray(t.scope.allowed_repos)) {
+    for (const repo of t.scope.allowed_repos) {
+      allAllowedRepos.add(repo);
+    }
+  }
 }
 
 if (taskScopes.length) {
   console.log(`OK: ${targetPath} is within scope of task(s): ${taskScopes.join(", ")}`);
   process.exit(0);
+}
+
+if (allAllowedRepos.size > 0 && isWithin(workspaceRoot, resolvedTarget)) {
+  const relPath = path.relative(workspaceRoot, resolvedTarget);
+  const targetRepo = relPath.split(path.sep)[0];
+  if (!allAllowedRepos.has(targetRepo)) {
+    console.error(`DENIED: ${targetPath} references repo "${targetRepo}" which is not in the approved repos for this delivery.`);
+    console.error(`  Approved repos: ${[...allAllowedRepos].join(", ")}`);
+    console.error(`  Use one of these repos instead. Check read-context.js output for approved repos.`);
+    process.exit(1);
+  }
 }
 
 console.error(`DENIED: ${targetPath} is not within any approved write scope for role ${checkRole || "unknown"}.`);

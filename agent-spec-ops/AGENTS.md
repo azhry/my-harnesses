@@ -73,9 +73,13 @@ any action. Do not assume context from previous sessions carries over.
   implementation lane work, always use `scripts/transition-task.js`. The
   `transition.js` script will reject `implementation_in_progress →
   integration_verification` if any dev tasks are unverified.
-- Run `scripts/check-contracts.js` and `scripts/check-scope.js` before final
-  review. Do not mark integration passed with failed or blocked contract/scope
-  checks.
+- Run `scripts/check-contracts.js`, `scripts/check-scope.js`, and
+  `scripts/check-harness-integrity.js` before final review. Do not mark
+  integration passed with failed or blocked contract/scope checks or harness
+  integrity violations.
+- Run `scripts/verify-integration.js` before `integration_verification` to
+  verify the project stack starts and responds correctly via docker compose.
+  This is automatically invoked by `transition.js`; failures block the transition.
 - When `agent_dispatch.spawn_requests[]` contains planned requests and this
   runtime supports agent spawning, the orchestrator may spawn workers for those
   requests. Role agents must not change top-level workflow state.
@@ -381,11 +385,20 @@ planned  ──→ active ──→ implemented ──→ testing ──→ veri
 
 - **implemented → testing**: Tests are running or ready to run.
 
-- **testing → verified**: Git lifecycle must be complete:
+- **testing → verified**: Test execution evidence AND Git lifecycle must be complete:
+  - `task.test.status` must be `"passed"` (recorded via `scripts/record-test-results.js`)
+  - `task.test.last_run_at` must be set (tests were actually executed, not just claimed)
+  - `task.test.commands` must contain at least one command
+  - `task.test.failures` must be empty
   - `git_flow.local_tests_passed = true` with `test_evidence`
   - `git_flow.pushed = true` with `push_evidence`
   - `git_flow.merge_request_status` is `created`, `open`, or `merged` with URL
   - If `auto_merge = true`: `merge_checks_passed` and `merged` must be true
+
+  Agents cannot skip test execution by setting `git_flow.local_tests_passed = true`
+  directly — the `transition-task.js` script now requires `task.test` to have been
+  populated via `record-test-results.js`. Always use `record-test-results.js` to
+  record test outcomes.
 
 - **any → failed**: Records failure in `task.loop.last_failure` and increments
   attempt counter. After `max_attempts` retries, escalate via `blocked`.
@@ -461,14 +474,18 @@ The workspace root is the **parent directory** of the harness folder.
 If harness is at `agent-spec-ops/`, workspace root is `../` from it.
 **All code files for tasks go into the project repo under workspace root, NOT into the harness directory.**
 
-For example, with NLA-001 targeting `baby-math`:
+For example, with NLA-001 targeting `<repo-name>`:
 - Harness: `my-harnesses/agent-spec-ops/`
 - Workspace: `my-harnesses/`
-- Project: `my-harnesses/baby-math/`
-- Task file: `my-harnesses/baby-math/backend/Dockerfile`
+- Project: `my-harnesses/<repo-name>/`
+- Task file: `my-harnesses/<repo-name>/backend/Dockerfile`
 
 When writing files from the harness CWD, prefix paths with `../<repo>/`:
-`../baby-math/backend/Dockerfile` — not `baby-math/backend/Dockerfile`.
+`../<repo-name>/backend/Dockerfile` — not `<repo-name>/backend/Dockerfile`.
+
+**Always use `read-context.js` output to determine the actual repo name** — it
+extracts approved repos from task scopes and displays them at session start.
+Do not guess or hardcode repo names from memory.
 
 ## Write Scope Enforcement
 
@@ -562,6 +579,48 @@ Reusable knowledge types to promote:
 
 Do not promote one-off observations, transient debug info, or obvious
 common sense as knowledge cards.
+
+## Agent Best Practices
+
+### Directory Navigation
+
+When exploring the project repo, use `ls -alt` instead of `ls` to see hidden files
+(e.g. `.env`, `.gitignore`, `.env.example`). Traverse directories deeply — do not
+assume structure from file paths alone. Check subdirectories for configuration files.
+
+### Known Project Issues (do not fix — documented for awareness)
+
+- **`rounded-puffy` CSS class**: `frontend/src/index.css:100` references a
+  `rounded-puffy` class that does not exist in Tailwind CSS. This is a project
+  code issue in `nala-guru/` and must NOT be modified by the agent. Route to
+  human if asked to fix it.
+
+### Linear API Troubleshooting
+
+If Linear API calls fail, run the connectivity test to verify environment setup:
+
+```bash
+node scripts/check-linear-connectivity.js runs/<DELIVERY_ID>/workflow-state.json
+```
+
+This tests the API key, lists available teams and projects with their IDs, and
+shows which env vars are set. It avoids the common mistake of using shell
+variable syntax (`$LINEAR_API_KEY`) inside `node -e` strings — always use
+`process.env.LINEAR_API_KEY` in Node.js code.
+
+### Integrity Checks
+
+The harness now enforces the following automatically at key transitions.
+Do not attempt to bypass them:
+
+| Check | When | What it prevents |
+|-------|------|-------------------|
+| Test execution evidence | `testing → verified` | Setting `task.test.status = "passed"` manually without running tests |
+| Scope/repo validation | `check-write-scope.js` + `testing → verified` | Writing to repos not in `allowed_repos` (e.g. `baby-math` instead of `nala-guru`) |
+| Docker compose verification | `testing → verified` + `integration_verification` + `waiting_for_final_review` | Marking tasks verified without ensuring the stack still starts |
+| Harness integrity | `waiting_for_final_review` | Modifying `scripts/`, `ui/`, `templates/`, `AGENTS.md`, etc. outside orchestrator role |
+| Linear auto-sync | `read-context.js`, `implementation_in_progress` | Tasks without `linear_id` being missed in sync |
+| Linear team/project validation | `sync-linear-task.js --create` | Creating issues without `LINEAR_TEAM_ID` set |
 
 ## Stop Conditions
 

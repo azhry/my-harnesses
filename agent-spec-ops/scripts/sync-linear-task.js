@@ -118,6 +118,14 @@ for (const task of targetTasks) {
       errors++;
     }
   } else if (args.create) {
+    if (!LINEAR_TEAM_ID) {
+      console.error(`Cannot create Linear issue for ${task.id}: LINEAR_TEAM_ID is not set. Set env var LINEAR_TEAM_ID to the target team ID.`);
+      errors++;
+      continue;
+    }
+    if (!LINEAR_PROJECT_ID) {
+      console.warn(`Creating Linear issue for ${task.id} without project — set LINEAR_PROJECT_ID to assign to a specific project.`);
+    }
     // Create new Linear issue
     const projectInput = LINEAR_PROJECT_ID ? `, projectId: "${LINEAR_PROJECT_ID}"` : "";
     const initialStatus = linearStatusFor(task.status);

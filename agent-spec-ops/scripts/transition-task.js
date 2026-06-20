@@ -12,6 +12,7 @@ const {
 const { execSync } = require("child_process");
 const { appendEvent, appendTokenUsageRow } = require("./lib/memory-store");
 const { checkContext } = require("./lib/context-check");
+const harnessRoot = path.resolve(__dirname, "..");
 
 const ALLOWED_TRANSITIONS = {
   planned: ["active", "blocked", "waived", "not_applicable"],
@@ -106,6 +107,48 @@ if (nextStatus === "active") {
 }
 
 if (nextStatus === "verified") {
+  // === UNIFIED TEST EXECUTION ENFORCEMENT (all roles) ===
+  const test = task.test || {};
+  const runDir = path.dirname(statePath);
+
+  if (test.status !== "passed") {
+    errors.push(`${taskId}: task.test.status must be "passed" before verified (record tests via scripts/record-test-results.js with --status passed)`);
+  }
+  if (!test.last_run_at) {
+    errors.push(`${taskId}: task.test.last_run_at must be set before verified (tests must have been actually executed)`);
+  }
+  if (!test.commands || !test.commands.length) {
+    errors.push(`${taskId}: task.test.commands must contain at least one test command before verified`);
+  }
+  if (test.failures && test.failures.length > 0) {
+    errors.push(`${taskId}: task.test.failures must be empty before verified (${test.failures.length} failure(s) unresolved)`);
+  }
+  if (!test.output_file) {
+    errors.push(`${taskId}: task.test.output_file must be set before verified (record tests via scripts/record-test-results.js with --output)`);
+  } else {
+    const outputPath = path.resolve(runDir, test.output_file);
+    if (!fs.existsSync(outputPath)) {
+      errors.push(`${taskId}: task.test.output_file "${test.output_file}" does not exist on disk. Agent may have set it manually without running tests.`);
+    }
+  }
+
+  // === SCOPE ENFORCEMENT: changed_files must match approved repos ===
+  const approvedRepos = new Set();
+  const allTasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
+  for (const t of allTasks) {
+    if (t.scope && Array.isArray(t.scope.allowed_repos)) {
+      for (const r of t.scope.allowed_repos) approvedRepos.add(r);
+    }
+  }
+  if (approvedRepos.size > 0 && Array.isArray(task.implementation && task.implementation.changed_files)) {
+    for (const cf of task.implementation.changed_files) {
+      const cfRepo = cf.split(/[/\\]/)[0];
+      if (cfRepo && !approvedRepos.has(cfRepo) && !cf.startsWith("runs/")) {
+        errors.push(`${taskId}: changed_file "${cf}" references repo "${cfRepo}" not in approved repos: ${[...approvedRepos].join(", ")}`);
+      }
+    }
+  }
+
   const isDevTask = ["frontend_dev", "backend_dev"].includes(task.role);
   if (isDevTask) {
     const git = task.git_flow || {};
@@ -146,12 +189,31 @@ if (nextStatus === "verified") {
       } catch (err) {
         const output = err.stdout || "";
         const stderr = err.stderr || "";
-        // Skipped (not a git repo) is not an error
         if (output.includes("not a git repository") || output.includes("skipping remote checks")) {
           console.log(`  Git lifecycle enforcement: skipped for ${taskId} (no git repo)`);
         } else {
           const details = output.includes("FAIL") ? output.split("\n").filter(l => l.includes("Failures")).join("; ") : stderr.trim();
           errors.push(`${taskId}: git lifecycle enforcement failed — ${details || "run scripts/enforce-git-lifecycle.js separately for details"}`);
+        }
+      }
+    }
+  }
+
+  // === DOCKER COMPOSE INTEGRATION VERIFICATION ===
+  if (errors.length === 0 && !process.env.SKIP_DOCKER_VERIFY) {
+    const verifyScript = path.join(__dirname, "verify-integration.js");
+    if (fs.existsSync(verifyScript)) {
+      try {
+        execSync(`node "${verifyScript}" "${statePath}"`, {
+          cwd: harnessRoot, encoding: "utf8", stdio: "pipe", timeout: 120000
+        });
+        console.log(`  Integration verification (docker compose): passed for ${taskId}`);
+      } catch (e) {
+        const output = (e.stdout || e.stderr || e.message || "").trim();
+        if (output.includes("No docker-compose file found") || output.includes("No repos defined")) {
+          console.log(`  Integration verification: skipped (no docker compose)`);
+        } else {
+          errors.push(`${taskId}: Integration (docker compose) verification failed. The change may break the running system:\n${output}`);
         }
       }
     }

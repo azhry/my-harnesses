@@ -12,7 +12,7 @@ const TMP = path.join(ROOT, ".test-tmp");
 
 function runScript(script, args = [], options = {}) {
   const cmd = `node "${path.join(SCRIPTS, script)}" ${args.map(a => `"${a}"`).join(" ")}`;
-  const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1", SKIP_CONTEXT_CHECK: "1" }, ...options };
+    const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1", SKIP_CONTEXT_CHECK: "1", SKIP_DOCKER_VERIFY: "1" }, ...options };
   try {
     const stdout = execSync(cmd, execOptions);
     return { stdout: stdout.trim(), stderr: "", exitCode: 0 };
@@ -107,7 +107,7 @@ function makeFeTask(id, deps = []) {
       blockers: []
     },
     implementation: { changed_files: ["test/file.ts"], evidence: ["implemented"], deviations: [] },
-    test: { cases: ["test works"], commands: ["npm test"], evidence: ["all tests pass"], failures: [] },
+    test: { status: "passed", last_run_at: new Date().toISOString(), output_file: "test-output/test.log", cases: ["test works"], commands: ["npm test"], evidence: ["all tests pass"], failures: [] },
     loop: { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] }
   };
 }
@@ -140,7 +140,7 @@ function makeBeTask(id, deps = []) {
       blockers: []
     },
     implementation: { changed_files: ["test/file.ts"], evidence: ["implemented"], deviations: [] },
-    test: { cases: ["test works"], commands: ["npm test"], evidence: ["all tests pass"], failures: [] },
+    test: { status: "passed", last_run_at: new Date().toISOString(), output_file: "test-output/test.log", cases: ["test works"], commands: ["npm test"], evidence: ["all tests pass"], failures: [] },
     loop: { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] }
   };
 }
@@ -148,6 +148,8 @@ function makeBeTask(id, deps = []) {
 describe("transition-task.js", () => {
   before(() => {
     fs.mkdirSync(TMP, { recursive: true });
+    fs.mkdirSync(path.join(TMP, "test-output"), { recursive: true });
+    fs.writeFileSync(path.join(TMP, "test-output", "test.log"), "All tests passed\n");
   });
 
   after(() => {

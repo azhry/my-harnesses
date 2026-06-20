@@ -3,6 +3,7 @@
     "name": "agent-spec-ops",
     "version": "0.1.0"
   },
+  "workspace_root": "",
   "current_state": "intake",
   "delivery": {
     "id": "",

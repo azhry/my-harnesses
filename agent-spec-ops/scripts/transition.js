@@ -60,6 +60,20 @@ if (nextState === "integration_verification") {
     const ids = unverified.map((t) => `${t.id} (${t.status})`).join(", ");
     errors.push(`Cannot transition to integration_verification: unverified tasks: ${ids}`);
   }
+
+  if (errors.length === 0) {
+    const verifyScript = path.join(__dirname, "verify-integration.js");
+    if (fs.existsSync(verifyScript) && !process.env.SKIP_INTEGRATION_VERIFY) {
+      try {
+        execSync(`node "${verifyScript}" "${statePath}"`, {
+          cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 180000
+        });
+      } catch (e) {
+        const output = (e.stdout || e.stderr || e.message || "").trim();
+        errors.push(`Integration verification failed:\n${output}`);
+      }
+    }
+  }
 }
 
 if (nextState === "frontend_verified") {
@@ -114,6 +128,37 @@ if (nextState === "waiting_for_final_review") {
   if (!instructions || instructions.status !== "sent") {
     errors.push("Cannot transition to waiting_for_final_review: human_instructions.final_review.status must be 'sent'. Use scripts/record-event.js to record that instructions were sent to the reviewer.");
   }
+
+  const integrityScript = path.join(__dirname, "check-harness-integrity.js");
+  if (fs.existsSync(integrityScript) && !process.env.SKIP_INTEGRITY_CHECK) {
+    try {
+      execSync(`node "${integrityScript}" "${statePath}"`, {
+        cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 15000
+      });
+    } catch (e) {
+      const output = (e.stdout || e.stderr || e.message || "").trim();
+      errors.push(`Harness integrity check failed:\n${output}`);
+    }
+  }
+
+  if (errors.length === 0 && !process.env.SKIP_DOCKER_VERIFY) {
+    const verifyScript = path.join(__dirname, "verify-integration.js");
+    if (fs.existsSync(verifyScript)) {
+      try {
+        execSync(`node "${verifyScript}" "${statePath}"`, {
+          cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 120000
+        });
+        console.log(`  Integration verification (docker compose): passed`);
+      } catch (e) {
+        const output = (e.stdout || e.stderr || e.message || "").trim();
+        if (output.includes("No docker-compose file found") || output.includes("No repos defined")) {
+          console.log(`  Integration verification: skipped (no docker compose)`);
+        } else {
+          errors.push(`Integration (docker compose) verification failed at final review:\n${output}`);
+        }
+      }
+    }
+  }
 }
 
 if (errors.length) {
@@ -153,6 +198,23 @@ if (nextState === "implementation_in_progress") {
       last_failure: "",
       status: "active"
     });
+  }
+
+  // Auto-create Linear issues for all planned tasks
+  const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+  if (LINEAR_API_KEY) {
+    const syncScript = path.join(__dirname, "sync-linear-task.js");
+    if (fs.existsSync(syncScript)) {
+      try {
+        execSync(`node "${syncScript}" "${statePath}" --create`, {
+          cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 60000
+        });
+        console.log(`  Auto-created Linear issues for planned tasks`);
+      } catch (e) {
+        const msg = (e.stdout || e.stderr || e.message || "").trim().slice(0, 200);
+        console.warn(`  Linear issue creation had issues (non-blocking): ${msg}`);
+      }
+    }
   }
 }
 

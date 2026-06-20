@@ -10,6 +10,9 @@ const [file, taskId, ...rest] = process.argv.slice(2);
 const repoPath = rest.includes("--repo-path")
   ? path.resolve(rest[rest.indexOf("--repo-path") + 1])
   : process.cwd();
+const labelOption = rest.includes("--label")
+  ? rest[rest.indexOf("--label") + 1]
+  : "";
 
 if (!file || !taskId) {
   console.error("Usage: node scripts/enforce-git-lifecycle.js path/to/workflow-state.json TASK_ID [--repo-path /path/to/repo]");
@@ -178,6 +181,33 @@ for (const [field, value] of Object.entries(fieldChecks)) {
 }
 checks.push({ check: "field_consistency", status: failures.length === 0 ? "passed" : "failed", detail: `${Object.keys(fieldChecks).length} fields checked, ${failures.length} failures` });
 
+// Auto-detect label: ai-assisted if human gates were involved, else ai-automated
+function detectLabel(state, task) {
+  if (labelOption) return labelOption;
+  const gates = state.gates || {};
+  const hasHumanGate = Object.values(gates).some((g) => g && (g.approver || g.approval_note));
+  const hasHumanInstructions = state.human_instructions &&
+    Object.values(state.human_instructions).some((h) => h && h.status === "sent");
+  const hasHumanEvents = (state.log || []).some((e) =>
+    /human_approval|human_disapproval|human_instruction|human_gate/i.test(e.note || "")
+  );
+  if (hasHumanGate || hasHumanInstructions || hasHumanEvents) return "ai-assisted";
+  return "ai-automated";
+}
+
+// Apply label to PR via gh CLI
+function applyPrLabel(mergeRequestUrl, label) {
+  if (!mergeRequestUrl || !label) return;
+  const mrNumber = mergeRequestUrl.match(/(\d+)$/)?.[1];
+  if (!mrNumber) return;
+  const result = runGh(`pr edit ${mrNumber} --add-label "${label}"`);
+  if (result.ok) {
+    console.log(`  Label applied: ${label} to PR #${mrNumber}`);
+  } else {
+    console.log(`  ⚠  Could not apply label ${label} to PR #${mrNumber}: ${result.stderr || result.stdout}`);
+  }
+}
+
 // Record event
 const passed = failures.length === 0;
 const event = appendEvent(statePath, {
@@ -200,6 +230,11 @@ if (failures.length) {
     console.error(`    - ${f}`);
   }
   process.exit(1);
+}
+
+if (passed && git.merge_request_url) {
+  const detectedLabel = detectLabel(state, task);
+  applyPrLabel(git.merge_request_url, detectedLabel);
 }
 
 console.log(`  Event recorded: ${event.event.id}`);

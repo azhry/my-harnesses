@@ -103,8 +103,10 @@ console.log(`  Target repo: ${repoPath}`);
 
 const remoteResult = runGit("remote -v");
 if (!remoteResult.ok || !remoteResult.stdout) {
-  console.log(`  ⚠  No git remote configured at ${repoPath}`);
-  checks.push({ check: "remote_exists", status: "skipped", detail: "No git remote found — cannot verify remotely" });
+  const msg = `No git remote configured at ${repoPath}. Validation failed.`;
+  console.log(`  ⚠  ${msg}`);
+  checks.push({ check: "remote_exists", status: "failed", detail: msg });
+  failures.push(msg);
 } else {
   checks.push({ check: "remote_exists", status: "passed", detail: "Remote configured" });
   const remoteUrl = remoteResult.stdout.split("\n")[0].split(/\s+/)[1] || "";
@@ -164,7 +166,8 @@ if (!remoteResult.ok || !remoteResult.stdout) {
         }
       } else {
         const msg = `Cannot verify PR #${mrNumber}: ${mrResult.stderr || mrResult.stdout}`;
-        checks.push({ check: "merge_request_exists", status: "skipped", detail: msg });
+        checks.push({ check: "merge_request_exists", status: "failed", detail: msg });
+        failures.push(msg);
       }
     } else {
       const msg = `Cannot parse PR number from merge_request_url: ${git.merge_request_url}`;

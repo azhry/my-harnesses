@@ -11,12 +11,15 @@ const taskId = args[1];
 
 let commitMsg = "";
 let testCommand = "";
+let prBodyFile = "";
 
 for (let i = 2; i < args.length; i++) {
   if (args[i] === "--commit-msg" && i + 1 < args.length) {
     commitMsg = args[++i];
   } else if (args[i] === "--test-command" && i + 1 < args.length) {
     testCommand = args[++i];
+  } else if (args[i] === "--pr-body-file" && i + 1 < args.length) {
+    prBodyFile = args[++i];
   }
 }
 
@@ -143,11 +146,15 @@ try {
     const title = `[${deliveryId}] ${taskId}: ${task.title}`;
     let body = `Closes ${taskId}\n\n${task.description}`;
     try {
-      const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
-      if (fs.existsSync(templatePath)) {
-        body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
+      if (prBodyFile && fs.existsSync(prBodyFile)) {
+        body = fs.readFileSync(prBodyFile, "utf8");
+      } else {
+        const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
+        if (fs.existsSync(templatePath)) {
+          body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
+        }
       }
-    } catch {}
+    } catch { }
 
     const prOutput = execSync(`gh pr create --base main --head ${branchName} --title "${title}" --body "${body}"`, { cwd: repoPath, stdio: "pipe", encoding: "utf8" });
     prUrl = prOutput.trim();

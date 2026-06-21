@@ -98,8 +98,14 @@ After promoting knowledge and syncing to Linear, transition to
 > **Session Compaction Warning**
 > DO NOT rely on conversational memory for API keys, user instructions, or state flags. The chat history will inevitably be truncated to save tokens, erasing anything not permanently saved.
 > You MUST persist all data to `workflow-state.json`.
-> **CRITICAL**: Do NOT manually edit the JSON file with string replacement tools (this will corrupt the file). ALWAYS use the `record-event.js` script with the `--set` flag:
-> `node scripts/record-event.js runs/<DELIVERY_ID>/workflow-state.json --type config_update --summary "Update state" --set "path.to.field=value"`
+>
+> [!CAUTION]
+> **STRICT COMPLIANCE REQUIRED**
+> You are strictly forbidden from editing `workflow-state.json` via text manipulation, `sed`, or text editors. You MUST use the automated script below. If the script throws a `FATAL` error (e.g. invalid JSON syntax), you must fix your syntax instead of bypassing the script. Bypassing the script is considered CHEATING and will result in run termination.
+
+```bash
+node scripts/record-event.js runs/<DELIVERY_ID>/workflow-state.json --type config_update --summary "Update state" --set "path.to.field=value"
+```
 
 You MUST keep `workflow-state.json` fields current after every meaningful
 action. The monitor UI reads these fields — stale state misleads both human

@@ -65,8 +65,9 @@ const searchQuery = {
   query: `{ projects(filter: { name: { eq: "${projectTitle}" } }) { nodes { id name } } }`
 };
 
+(async () => {
 try {
-  const searchResult = awaitQuery(searchQuery);
+  const searchResult = await awaitQuery(searchQuery);
   const existing = searchResult.data && searchResult.data.projects && searchResult.data.projects.nodes ? searchResult.data.projects.nodes : [];
 
   if (existing.length) {
@@ -80,7 +81,7 @@ try {
       synced++;
     } else {
       try {
-        const result = awaitQuery(mutation);
+        const result = await awaitQuery(mutation);
         if (result.errors) {
           console.error(`Linear API error updating project: ${result.errors[0].message}`);
           errors++;
@@ -103,7 +104,7 @@ try {
       synced++;
     } else {
       try {
-        const result = awaitQuery(mutation);
+        const result = await awaitQuery(mutation);
         if (result.errors) {
           console.error(`Linear API error creating project: ${result.errors[0].message}`);
           errors++;
@@ -137,6 +138,10 @@ appendEvent(statePath, {
 });
 
 console.log(`\nDone: ${synced} synced, ${errors} errors`);
+if (errors > 0) {
+  process.exit(1);
+}
+})();
 
 function awaitQuery(body) {
   const url = new URL(GRAPHQL_URL);

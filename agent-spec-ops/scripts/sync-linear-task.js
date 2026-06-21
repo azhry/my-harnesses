@@ -57,9 +57,23 @@ let errors = 0;
 let stateIdCache = null;
 
 (async () => {
-if (LINEAR_TEAM_ID) {
-  stateIdCache = await resolveWorkflowStates(LINEAR_TEAM_ID);
+let teamIdToUse = LINEAR_TEAM_ID;
+if (!teamIdToUse && targetTasks.some((t) => t.linear_id)) {
+  const firstId = targetTasks.find((t) => t.linear_id).linear_id;
+  try {
+    const res = await graphql({ query: `query { issue(id: "${firstId}") { team { id } } }` });
+    if (res.data && res.data.issue && res.data.issue.team) {
+      teamIdToUse = res.data.issue.team.id;
+    }
+  } catch (e) {
+    console.warn(`Failed to resolve team ID from issue ${firstId}: ${e.message}`);
+  }
 }
+
+if (teamIdToUse) {
+  stateIdCache = await resolveWorkflowStates(teamIdToUse);
+}
+
 for (const task of targetTasks) {
   const linearId = task.linear_id || "";
   const title = `[${deliveryId}] ${task.title || task.id}`;
@@ -104,13 +118,18 @@ for (const task of targetTasks) {
       synced++;
       continue;
     }
+    if (!stateIdCache) {
+      console.warn(`Warning: LINEAR_TEAM_ID not provided and could not be resolved. Task ${task.id} status will NOT be updated to ${targetStatus}.`);
+    } else if (!stateId) {
+      console.warn(`Warning: Could not find a matching Linear state for ${targetStatus}. Task ${task.id} status will NOT be updated.`);
+    }
     try {
       const result = await graphql(mutation);
       if (result.errors) {
         console.error(`Linear API error for ${task.id}: ${result.errors[0].message}`);
         errors++;
       } else {
-        console.log(`Updated Linear issue ${linearId} for ${task.id} -> ${task.status}${stateId ? ` [state: ${targetStatus}]` : ""}`);
+        console.log(`Updated Linear issue ${linearId} for ${task.id} -> ${task.status}${stateId ? ` [state: ${targetStatus}]` : " [STATUS NOT UPDATED]"}`);
         synced++;
       }
     } catch (err) {
@@ -176,6 +195,9 @@ appendEvent(statePath, {
 });
 
 console.log(`\nDone: ${synced} synced, ${errors} errors`);
+if (errors > 0) {
+  process.exit(1);
+}
 
 function linearStatusFor(taskStatus) {
   const statusMap = {

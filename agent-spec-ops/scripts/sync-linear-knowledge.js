@@ -58,8 +58,9 @@ const searchQuery = {
   query: `{ documents(filter: { title: { eq: "${docTitle}" } }) { nodes { id } } }`
 };
 
+(async () => {
 try {
-  const searchResult = awaitQuery(searchQuery);
+  const searchResult = await awaitQuery(searchQuery);
   if (searchResult.data && searchResult.data.documents && searchResult.data.documents.nodes && searchResult.data.documents.nodes.length) {
     docId = searchResult.data.documents.nodes[0].id;
   }
@@ -107,7 +108,7 @@ if (docId) {
     console.log(`[DRY RUN] Would update Linear document ${docId}: ${docTitle}`);
   } else {
     try {
-      const result = awaitQuery(mutation);
+      const result = await awaitQuery(mutation);
       if (result.errors) {
         console.error(`Linear API error updating document: ${result.errors[0].message}`);
         errors++;
@@ -129,7 +130,7 @@ if (docId) {
     console.log(`[DRY RUN] Would create Linear document: ${docTitle}`);
   } else {
     try {
-      const result = awaitQuery(mutation);
+      const result = await awaitQuery(mutation);
       if (result.errors) {
         console.error(`Linear API error creating document: ${result.errors[0].message}`);
         errors++;
@@ -157,6 +158,10 @@ appendEvent(statePath, {
 });
 
 console.log(`\nDone: ${synced} synced, ${errors} errors`);
+if (errors > 0) {
+  process.exit(1);
+}
+})();
 
 function awaitQuery(body) {
   const url = new URL(GRAPHQL_URL);

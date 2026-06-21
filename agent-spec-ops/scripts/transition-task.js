@@ -347,7 +347,7 @@ if (task.linear_id && linearCfg.api_key) {
         stdio: "ignore",
         timeout: 10000
       });
-    } catch {}
+    } catch { }
   }, 100);
 }
 

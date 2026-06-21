@@ -22,7 +22,11 @@ standalone to see detailed per-check output.
 
 For every `frontend_dev` and `backend_dev` task — **you MUST use the automated submit-task script.**
 
-Do not manually branch, commit, run tests, and open PRs. The harness requires strict state updates which are handled automatically by `scripts/submit-task.js`.
+> [!CAUTION]
+> **STRICT COMPLIANCE REQUIRED**
+> You are strictly forbidden from running manual `git` commands or using the `gh` CLI directly to bypass the script. If `submit-task.js` throws a `FATAL` error, you must read the error output and fix the underlying issue. Bypassing the script is considered CHEATING and will result in run termination.
+
+The harness requires strict state updates which are handled automatically by `scripts/submit-task.js`.
 
 ### Step-by-step (run this single command):
 
@@ -83,20 +87,17 @@ changed, why, and how to verify it.
 - Related MRs/Issues: <links>
 ```
 
-### How to create a PR with this template
+### How to use this template with submit-task.js
+
+1. Create a markdown file in your run directory (e.g. `runs/<DELIVERY_ID>/pr-<TASK_ID>.md`)
+2. Write your meaningful PR description using the template format above.
+3. Pass the file to `submit-task.js` using the `--pr-body-file` flag:
 
 ```bash
-# Read the template, replace placeholders, then create
-gh pr create \
-  --base main \
-  --head delivery/<DELIVERY_ID>/<TASK_ID> \
-  --title "[<DELIVERY_ID>] <TASK_ID>: <short title>" \
-  --body "$(cat templates/pull-request-template.md | \
-    sed 's/<TASK_ID>/<TASK_ID>/g' | \
-    sed 's/<DELIVERY_ID>/<DELIVERY_ID>/g')"
+node scripts/submit-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> \
+  --commit-msg "feat: <TASK_ID>: your message here" \
+  --test-command "npm test" \
+  --pr-body-file runs/<DELIVERY_ID>/pr-<TASK_ID>.md
 ```
 
-Better yet, write the body inline by filling in the template sections
-with actual content from your task state. The description must be
-meaningful — empty or one-line PR descriptions will be rejected by
-human reviewers.
+Do NOT use `gh pr create` manually. The automated script is strictly required.

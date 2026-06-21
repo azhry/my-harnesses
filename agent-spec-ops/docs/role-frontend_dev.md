@@ -26,5 +26,8 @@ This script will:
 
 If you are only editing non-code files or doing setup where tests don't apply, you can omit the test command or use a dummy command like `echo "no tests needed"`.
 
+## Design Implementation
+Instead of relying on static HTML dumps, use your **Stitch MCP tools** to interactively query the designs when implementing features. For example, if you need to implement a button, use the MCP tools to fetch the exact CSS tokens (colors, padding, fonts) and component structure directly from the design link provided in the task description or requirements.
+
 ## Write Scope
 You may write to the project repository paths and `runs/<DELIVERY_ID>/`. You may NOT modify the harness scripts or global state files directly.

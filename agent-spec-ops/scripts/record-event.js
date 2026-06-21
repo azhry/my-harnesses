@@ -6,7 +6,8 @@ const {
   appendEvent,
   createKnowledgeCard,
   writeEventMarkdown,
-  writeKnowledgeCard
+  writeKnowledgeCard,
+  writeState
 } = require("./lib/memory-store");
 
 const args = parseArgs(process.argv.slice(2));
@@ -29,12 +30,13 @@ if (!args.stateFile || !args.summary) {
     "  --knowledge-status observed|candidate|promoted|active",
     "  --component NAME  repeatable or comma-separated",
     "  --repo NAME       repeatable or comma-separated",
-    "  --service NAME    repeatable or comma-separated"
+    "  --service NAME    repeatable or comma-separated",
+    "  --set PATH=VALUE  repeatable (e.g. --set linear_config.api_key=123)"
   ].join("\n"));
   process.exit(1);
 }
 
-const { event, runDir } = appendEvent(args.stateFile, {
+const { event, state, runDir } = appendEvent(args.stateFile, {
   type: args.type,
   actor: args.actor,
   role_context: args.role,
@@ -49,6 +51,29 @@ const { event, runDir } = appendEvent(args.stateFile, {
 
 const markdownPath = writeEventMarkdown(runDir, event);
 let cardPath = "";
+
+if (args.sets && args.sets.length > 0) {
+  for (const setArg of args.sets) {
+    const eqIdx = setArg.indexOf("=");
+    if (eqIdx > -1) {
+      const p = setArg.substring(0, eqIdx);
+      const vStr = setArg.substring(eqIdx + 1);
+      let v = vStr;
+      try { v = JSON.parse(vStr); } catch(e) {}
+      
+      const parts = p.split(".");
+      let obj = state;
+      for (let j = 0; j < parts.length - 1; j++) {
+        if (!obj[parts[j]]) obj[parts[j]] = {};
+        obj = obj[parts[j]];
+      }
+      obj[parts[parts.length - 1]] = v;
+    }
+  }
+  state.delivery.updated_at = new Date().toISOString();
+  writeState(args.stateFile, state);
+  console.log(`Updated state fields using --set`);
+}
 
 if (args.knowledgeStatement) {
   const card = createKnowledgeCard({
@@ -94,7 +119,8 @@ function parseArgs(rawArgs) {
     knowledgeStatus: "candidate",
     components: [],
     repos: [],
-    services: []
+    services: [],
+    sets: []
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -167,6 +193,10 @@ function parseArgs(rawArgs) {
         break;
       case "--service":
         parsed.services.push(...splitList(value));
+        index += 1;
+        break;
+      case "--set":
+        parsed.sets.push(value);
         index += 1;
         break;
       default:

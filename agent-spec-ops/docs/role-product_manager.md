@@ -12,7 +12,7 @@ You are responsible for the product vision, UI/UX behavior, and system rules.
 ## Key Scripts
 - Before writing requirements, review context and local knowledge.
 - After writing `stitch-ui-prompt.md`, you MUST transition to `waiting_for_design_stitch` to ask the human to generate screens.
-- When the human provides a project URL/ID, use `node scripts/fetch-stitch-designs.js runs/<DELIVERY_ID>/workflow-state.json --url <URL>` to assemble designs.
+- When the human provides a project URL/ID, use your Stitch MCP tools (e.g. `stitch_list_projects`, `stitch_get_screens`) to interactively verify the generated designs.
 - Record any human feedback using `node scripts/record-event.js`.
 
 ## Write Scope

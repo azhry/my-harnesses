@@ -137,32 +137,77 @@ try {
 // 5. PR
 let prUrl = "";
 try {
-  const prList = execSync(`gh pr list --head ${branchName} --json url`, { cwd: repoPath, stdio: "pipe", encoding: "utf8" });
-  const prs = JSON.parse(prList);
-  if (prs.length > 0) {
-    prUrl = prs[0].url;
-    console.log(`✓ PR already exists: ${prUrl}`);
-  } else {
-    const title = `[${deliveryId}] ${taskId}: ${task.title}`;
-    let body = `Closes ${taskId}\n\n${task.description}`;
-    try {
-      if (prBodyFile && fs.existsSync(prBodyFile)) {
-        body = fs.readFileSync(prBodyFile, "utf8");
-      } else {
+  const ghEnv = { ...process.env, GH_PROMPT_DISABLE: "1", NO_COLOR: "1" };
+  const ghOpts = { cwd: repoPath, stdio: "pipe", encoding: "utf8", env: ghEnv };
+
+  // Check if gh binary is available
+  let ghAvailable = false;
+  try {
+    execSync(`gh --version`, { stdio: "pipe", encoding: "utf8", env: ghEnv });
+    ghAvailable = true;
+  } catch {
+    console.error("✗ gh CLI binary not found. Install from https://cli.github.com/ or authenticate with `gh auth login`.");
+  }
+
+  if (ghAvailable) {
+    // Check if PR already exists
+    const prList = execSync(`gh pr list --head ${branchName} --json url --no-prompt`, ghOpts);
+    const prs = JSON.parse(prList);
+    if (prs.length > 0) {
+      prUrl = prs[0].url;
+      console.log(`✓ PR already exists: ${prUrl}`);
+    } else {
+      const title = `[${deliveryId}] ${taskId}: ${task.title}`;
+      let body = `Closes ${taskId}\n\n${task.description}`;
+      try {
+        if (prBodyFile && fs.existsSync(prBodyFile)) {
+          body = fs.readFileSync(prBodyFile, "utf8");
+        } else {
+          const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
+          if (fs.existsSync(templatePath)) {
+            body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
+          }
+        }
+      } catch { }
+
+      const prOutput = execSync(`gh pr create --base main --head ${branchName} --title "${title}" --body "${body}" --no-prompt`, ghOpts);
+      prUrl = prOutput.trim();
+      console.log(`✓ Created PR: ${prUrl}`);
+    }
+  }
+
+  if (!prUrl && process.env.GITHUB_TOKEN) {
+    console.log("  gh CLI failed or unavailable — falling back to GitHub API...");
+    const repoUrl = execSync(`git remote get-url origin`, { cwd: repoPath, stdio: "pipe", encoding: "utf8" }).trim();
+    const repoPathMatch = repoUrl.match(/(?:github\.com[\/:])?([^\/]+\/[^\/\.]+?)(?:\.git)?$/);
+    if (repoPathMatch) {
+      const fullRepoName = repoPathMatch[1];
+      const title = `[${deliveryId}] ${taskId}: ${task.title}`;
+      let body = `Closes ${taskId}\n\n${task.description}`;
+      try {
         const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
         if (fs.existsSync(templatePath)) {
           body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
         }
+      } catch { }
+      const apiPayload = JSON.stringify({
+        title, body, head: branchName, base: "main"
+      });
+      const apiResult = execSync(
+        `node -e "const https=require('https');const req=https.request({hostname:'api.github.com',path:'/repos/${fullRepoName}/pulls',method:'POST',headers:{'Authorization':'Bearer ' + process.env.GITHUB_TOKEN,'Content-Type':'application/json','User-Agent':'submit-task'},timeout:15000},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>process.stdout.write(d));});req.write(${JSON.stringify(apiPayload)});req.on('error',e=>{process.stderr.write(e.message);process.exit(1)});req.end();"`,
+        { stdio: "pipe", encoding: "utf8", timeout: 20000 }
+      );
+      const apiData = JSON.parse(apiResult);
+      if (apiData.html_url) {
+        prUrl = apiData.html_url;
+        console.log(`✓ Created PR via API: ${prUrl}`);
+      } else {
+        console.error(`  API error: ${apiData.message || JSON.stringify(apiData)}`);
       }
-    } catch { }
-
-    const prOutput = execSync(`gh pr create --base main --head ${branchName} --title "${title}" --body "${body}"`, { cwd: repoPath, stdio: "pipe", encoding: "utf8" });
-    prUrl = prOutput.trim();
-    console.log(`✓ Created PR: ${prUrl}`);
+    }
   }
 } catch (e) {
-  console.error(`Failed to create/check PR via gh cli. Is it installed and authenticated?\n${e.message}`);
-  // Continue despite PR failure so state gets saved.
+  console.error(`✗ Failed to create PR: ${e.message}`);
 }
 
 // Update Git Flow State

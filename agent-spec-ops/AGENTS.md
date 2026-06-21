@@ -97,6 +97,23 @@ project scope, architecture, or task graph changes significantly.
   expected changes are rejected. When creating tasks in the state file or
   syncing to Linear, always set these fields — the Linear sync
   (`sync-linear-task.js`) reads them to build the Linear issue body.
+- **When LINEAR_API_KEY is configured, create tasks directly in Linear — do NOT
+  create task-breakdown.md.** The `task-breakdown.md` template is only a
+  fallback for when Linear is unavailable. If `LINEAR_API_KEY` is set:
+  1. Create the task graph in `workflow-state.json` (task_graph.tasks[])
+  2. Run `node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --create`
+     to push all tasks to Linear as real issues
+  3. Sync and manage those issues in Linear from that point on
+  4. Do NOT write `task-breakdown.md` — it duplicates work and confuses the
+     agent into treating a local file as the source of truth
+  If `LINEAR_API_KEY` is NOT set, create `task-breakdown.md` as a local
+  documentation artifact.
+- **Task names must be clean descriptions.** A task name is
+  something like "[FE-001] Implement login feature" or "Add error handling to API
+  endpoint". Do NOT prefix task names with "RUN CODE", "TASK", "FEATURE",
+  "STORY", "IMPLEMENT", or any other label. The task ID (e.g. `FE-001`)
+  already identifies the task type and sequence. Putting redundant labels in
+  the name field makes the Linear issue board unreadable.
 - **After creating ALL tasks, you MUST sync them to Linear before transitioning
   to `waiting_for_delivery_plan_review`.** This is a hard requirement — the
   `transition.js` script will reject the transition if any task lacks a

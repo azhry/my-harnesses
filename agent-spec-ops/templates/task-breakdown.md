@@ -2,6 +2,14 @@
 
 Delivery: `<DELIVERY_ID>` - `<TITLE>`
 
+> Linear fallback. When `LINEAR_API_KEY` is configured, skip this file and
+> create tasks directly in Linear via `sync-linear-task.js --create`. Use
+> this template only when Linear is unavailable.
+
+> Task names: plain descriptions only, no RUN CODE prefixes. Write "[FE-001] Implement login"
+> not "RUN CODE: Implement login" or "FEATURE: Implement login". The task ID
+> (FE-001, BE-002) already identifies the role and sequence.
+
 ## Task Graph Summary
 
 - Frontend required:

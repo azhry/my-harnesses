@@ -74,9 +74,33 @@ if (teamIdToUse) {
   stateIdCache = await resolveWorkflowStates(teamIdToUse);
 }
 
+const PREFIX_PATTERNS = [
+  /^(?:RUN\s+)?CODE\s*:\s*/i,
+  /^TASK\s*:\s*/i,
+  /^FEATURE\s*:\s*/i,
+  /^STORY\s*:\s*/i,
+  /^IMPLEMENT\s*:\s*/i,
+  /^FIX\s*:\s*/i,
+  /^BUG\s*:\s*/i,
+  /^CHORE\s*:\s*/i,
+  /^REFACTOR\s*:\s*/i,
+  /^DOCS?\s*:\s*/i,
+  /^TEST\s*:\s*/i,
+  /^UI\s*:\s*/i,
+  /^UX\s*:\s*/i
+];
+
+function stripTitlePrefix(title) {
+  let cleaned = title;
+  for (const pattern of PREFIX_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+  return cleaned.trim();
+}
+
 for (const task of targetTasks) {
   const linearId = task.linear_id || "";
-  const title = `[${deliveryId}] ${task.title || task.id}`;
+  const title = `${task.id}: ${stripTitlePrefix(task.title || task.id)}`;
   const description = [
     `**Delivery:** ${deliveryId}`,
     `**Task:** ${task.id}`,

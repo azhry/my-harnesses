@@ -6,12 +6,13 @@ through frontend/backend implementation and verification.
 ## Session Start (Required)
 
 When starting a new session on an existing delivery, immediately run context
-recovery to restore Linear/project/token awareness:
+recovery to restore Linear/project/token awareness and get role-specific instructions:
 
 ```bash
-node scripts/read-context.js runs/<DELIVERY_ID>/workflow-state.json
+node scripts/read-context.js runs/<DELIVERY_ID>/workflow-state.json --role <YOUR_CURRENT_ROLE>
 ```
 
+The `--role` argument is highly recommended, as it will append specific instructions for your current role (e.g., `frontend_dev`, `product_manager`) so you don't have to read this entire document.
 This dumps current state, task summary, Linear issue mappings, token totals,
 tool readiness status, and gate status. Read the output carefully before taking
 any action. Do not assume context from previous sessions carries over.
@@ -139,15 +140,8 @@ project scope, architecture, or task graph changes significantly.
 
 ## Role Routing
 
-| Role | Reads | Writes |
-| --- | --- | --- |
-| Product Manager | Intake, knowledge findings | Requirements, Stitch prompt, UI/system rules |
-| Project Manager | Approved product artifacts | Task graph, dependencies, definitions of done |
-| Frontend Dev | Approved frontend tasks | Frontend implementation evidence |
-| Frontend Test | Frontend tasks and implementation | Test cases, failures, verification evidence |
-| Backend Dev | Approved backend tasks | Backend implementation evidence |
-| Backend Test | Backend tasks and implementation | Unit/integration tests, failures, verification evidence |
-| Orchestrator | All state | Transitions, blockers, integration checks, handoff |
+Detailed role instructions are now located in `docs/role-<ROLE>.md`.
+To view your specific role instructions, use the `--role` argument when running `read-context.js`.
 
 ## Tool Readiness
 
@@ -603,84 +597,27 @@ After promoting knowledge and syncing to Linear, transition to
 
 ## Dev Git Lifecycle
 
-For every `frontend_dev` and `backend_dev` task — **you MUST follow these
-steps in order. Do not skip any step. Do not push to main directly.**
+For every `frontend_dev` and `backend_dev` task — **you MUST use the automated submit-task script.**
 
-### Step-by-step (run these exact commands):
+Do not manually branch, commit, run tests, and open PRs. The harness requires strict state updates which are handled automatically by `scripts/submit-task.js`.
+
+### Step-by-step (run this single command):
 
 ```bash
-# 1. Create the task feature branch from main
-#    (branch naming is critical — use the delivery/task pattern)
-git checkout main
-git pull origin main
-git checkout -b delivery/<DELIVERY_ID>/<TASK_ID>
-
-# 2. Implement only the approved task scope.
-#    (write code in the project repo)
-
-# 3. Stage and commit with a descriptive message
-git add -A
-git commit -m "<TASK_ID>: <summary of changes>
-
-- What changed and why
-- Impact on related components
-- Manual test instructions"
-#    The commit message must reference the task ID.
-
-# 4. Run tests and record results
-#    (use record-test-results.js — see Recording Test Results section)
-node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json \
-  --task <TASK_ID> --status passed --command "npm test" \
-  --output "$(npm test 2>&1)"
-
-# 5. Push the feature branch (NOT main)
-git push origin delivery/<DELIVERY_ID>/<TASK_ID>
-
-# 6. Create a merge request targeting main
-#    IMPORTANT: Use the PR description format defined in the
-#    "Pull/Merge Request Description" section below.
-gh pr create \
-  --base main \
-  --head delivery/<DELIVERY_ID>/<TASK_ID> \
-  --title "[<DELIVERY_ID>] <TASK_ID>: <short title>" \
-  --body "$(cat templates/pull-request-template.md | \
-    sed 's/<TASK_ID>/<TASK_ID>/g; s/<DELIVERY_ID>/<DELIVERY_ID>/g')"
-#    Replace the template placeholders with actual content before creating.
-
-# 7. Record git_flow evidence in the workflow state
-#    (update workflow-state.json directly or via script)
-
-# 8. Merge the MR by default after merge checks pass
-#    (or set git_flow.auto_merge = true to auto-merge)
-
-# 9. Run enforce-git-lifecycle to verify remote state
-node scripts/enforce-git-lifecycle.js runs/<DELIVERY_ID>/workflow-state.json \
-  <TASK_ID> --repo-path /path/to/project/repo
+node scripts/submit-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> \
+  --commit-msg "feat: <TASK_ID>: your message here" \
+  --test-command "npm test"
 ```
 
-### Rules:
+This script will automatically:
+1. Create your feature branch (`delivery/<DELIVERY_ID>/<TASK_ID>`)
+2. Stage and commit your code
+3. Run the tests and explicitly record the output
+4. Push the branch to the remote
+5. Create a Pull/Merge Request
+6. Update all required fields in `workflow-state.json` (`git_flow`, `test.status`, etc.)
 
-1. **Branch naming**: Always `delivery/<DELIVERY_ID>/<TASK_ID>`. Never use generic names like `feature/xyz` or `fix/abc`.
-2. **No direct pushes to main**: `git push origin main` is FORBIDDEN. The enforcement script will reject it.
-3. **Commit after every task**: Every task must result in at least one commit. Do not batch multiple tasks into one commit.
-4. **MR before merge**: Always create a pull request. Do not merge locally and push — the enforce-git-lifecycle check requires a PR URL.
-5. **PR description must be substantive** — see the "Pull/Merge Request Description" section for the required format.
-6. **Do not skip the git lifecycle**: If a task has no code changes (e.g., config-only), still record git evidence explaining why no branch was needed.
-
-### State fields to update after each step:
-
-| After step | Set these in `task.git_flow` |
-|------------|------------------------------|
-| 1 (branch) | `feature_branch`, `base_branch`, `target_branch`, `branch_created = true`, `branch_evidence` |
-| 3 (commit) | (commit is recorded in the branch) |
-| 4 (test) | `local_tests_passed = true`, `test_evidence` |
-| 5 (push) | `pushed = true`, `push_evidence` |
-| 6 (MR) | `merge_request_status = "created"`, `merge_request_url` |
-| 8 (merge) | `merge_checks_passed = true`, `merge_check_evidence`, `merged = true`, `merge_request_status = "merged"` |
-
-Do not mark a dev task `verified` until ALL the above `git_flow` fields are
-recorded. The `transition-task.js` script enforces this.
-
+If you are only editing non-code files or doing setup where tests don't apply, you can omit the test command or use a dummy command like `echo "no tests needed"`.
 ## State Field Maintenance
 
 You MUST keep `workflow-state.json` fields current after every meaningful

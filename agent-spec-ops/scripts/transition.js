@@ -165,10 +165,10 @@ if (GATE_APPROVAL_MAP[currentState] && APPROVED_NEXT[currentState] === nextState
   const gateName = GATE_APPROVAL_MAP[currentState];
   const gate = state.gates && state.gates[gateName];
   if (!gate || gate.status !== "approved") {
-    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" is not approved. Status: ${gate ? gate.status : "not_found"}. You must present the review to the human and wait for them to approve it.`);
+    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" is not approved. Status: ${gate ? gate.status : "not_found"}. You forgot to get human approval. Present the review to the human, wait for their approval, and update the state.`);
   }
   if (!gate || !gate.approver || gate.approver === "") {
-    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no approver. A human must explicitly approve this gate.`);
+    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no approver. You must explicitly set an approver when recording human approval.`);
   }
   if (!gate || !gate.decided_at) {
     errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no decided_at timestamp. The human decision must be recorded with a timestamp.`);

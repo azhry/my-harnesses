@@ -8,8 +8,14 @@ const { loadJson, readNdjson, readCsv } = require("./lib/memory-store");
 
 const file = process.argv[2];
 
+let roleName = "";
+const roleIndex = process.argv.indexOf("--role");
+if (roleIndex > -1 && roleIndex + 1 < process.argv.length) {
+  roleName = process.argv[roleIndex + 1];
+}
+
 if (!file) {
-  console.error("Usage: node scripts/read-context.js path/to/workflow-state.json");
+  console.error("Usage: node scripts/read-context.js path/to/workflow-state.json [--role <ROLE>]");
   process.exit(1);
 }
 
@@ -321,6 +327,18 @@ if (!effectiveApiKey) {
         console.log(`  ⚠ ${label} had issues: ${msg}`);
       }
     }
+  }
+}
+
+if (roleName) {
+  const roleFile = path.join(HARNESS_ROOT, "docs", `role-${roleName}.md`);
+  if (fs.existsSync(roleFile)) {
+    console.log(`\n${separator}`);
+    console.log(`  ROLE INSTRUCTIONS: ${roleName.toUpperCase()}`);
+    console.log(`${separator}\n`);
+    console.log(fs.readFileSync(roleFile, "utf8"));
+  } else {
+    console.log(`\n  ⚠ No specific role instructions found for "${roleName}" at ${roleFile}`);
   }
 }
 

@@ -113,23 +113,23 @@ if (nextStatus === "verified") {
   const runDir = path.dirname(statePath);
 
   if (test.status !== "passed") {
-    errors.push(`${taskId}: task.test.status must be "passed" before verified (record tests via scripts/record-test-results.js with --status passed)`);
+    errors.push(`${taskId}: Cannot transition to verified. You forgot to run tests. Run 'node scripts/submit-task.js' to automate this, or manually run 'scripts/record-test-results.js'.`);
   }
   if (!test.last_run_at) {
-    errors.push(`${taskId}: task.test.last_run_at must be set before verified (tests must have been actually executed)`);
+    errors.push(`${taskId}: Cannot transition to verified. You forgot to execute tests. Run 'node scripts/submit-task.js' first.`);
   }
   if (!test.commands || !test.commands.length) {
-    errors.push(`${taskId}: task.test.commands must contain at least one test command before verified`);
+    errors.push(`${taskId}: Cannot transition to verified. No test commands recorded. Run 'node scripts/submit-task.js' first.`);
   }
   if (test.failures && test.failures.length > 0) {
-    errors.push(`${taskId}: task.test.failures must be empty before verified (${test.failures.length} failure(s) unresolved)`);
+    errors.push(`${taskId}: Cannot transition to verified. Tests are failing. Fix tests and run 'node scripts/submit-task.js' again.`);
   }
   if (!test.output_file) {
-    errors.push(`${taskId}: task.test.output_file must be set before verified (record tests via scripts/record-test-results.js with --output)`);
+    errors.push(`${taskId}: Cannot transition to verified. You forgot to record test output. Run 'node scripts/submit-task.js' first.`);
   } else {
     const outputPath = path.resolve(runDir, test.output_file);
     if (!fs.existsSync(outputPath)) {
-      errors.push(`${taskId}: task.test.output_file "${test.output_file}" does not exist on disk. Agent may have set it manually without running tests.`);
+      errors.push(`${taskId}: Cannot transition to verified. Test output file "${test.output_file}" is missing. Run 'node scripts/submit-task.js' again.`);
     }
   }
 
@@ -190,13 +190,13 @@ if (nextStatus === "verified") {
       : {};
 
     if (!git.local_tests_passed || !git.test_evidence || !git.test_evidence.length) {
-      errors.push(`${taskId}: git_flow.local_tests_passed with evidence required before verified`);
+      errors.push(`${taskId}: Cannot transition to verified. Git flow 'local_tests_passed' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
     }
     if (!git.pushed || !git.push_evidence || !git.push_evidence.length) {
-      errors.push(`${taskId}: git_flow.pushed with evidence required before verified`);
+      errors.push(`${taskId}: Cannot transition to verified. Git flow 'pushed' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
     }
     if (!["created", "open", "merged"].includes(git.merge_request_status) || !git.merge_request_url) {
-      errors.push(`${taskId}: git_flow must have merge_request (status: created|open|merged) with URL before verified`);
+      errors.push(`${taskId}: Cannot transition to verified. Git flow 'merge_request_status' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
     }
     if (git.auto_merge) {
       if (!git.merge_checks_passed || !git.merge_check_evidence || !git.merge_check_evidence.length) {

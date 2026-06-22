@@ -84,8 +84,9 @@ function runGit(args) {
 }
 
 function runGh(args) {
+  const ghBin = process.env.GH_CLI_PATH || "gh";
   try {
-    const result = execSync(`gh ${args}`, {
+    const result = execSync(`"${ghBin}" ${args}`, {
       cwd: repoPath,
       encoding: "utf8",
       timeout: 15000,

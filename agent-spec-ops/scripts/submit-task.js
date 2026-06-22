@@ -137,13 +137,14 @@ try {
 // 5. PR
 let prUrl = "";
 try {
+  const ghBin = process.env.GH_CLI_PATH || "gh";
   const ghEnv = { ...process.env, GH_PROMPT_DISABLE: "1", NO_COLOR: "1" };
   const ghOpts = { cwd: repoPath, stdio: "pipe", encoding: "utf8", env: ghEnv };
 
   // Check if gh binary is available
   let ghAvailable = false;
   try {
-    execSync(`gh --version`, { stdio: "pipe", encoding: "utf8", env: ghEnv });
+    execSync(`"${ghBin}" --version`, { stdio: "pipe", encoding: "utf8", env: ghEnv });
     ghAvailable = true;
   } catch {
     console.error("✗ gh CLI binary not found. Install from https://cli.github.com/ or authenticate with `gh auth login`.");
@@ -151,7 +152,7 @@ try {
 
   if (ghAvailable) {
     // Check if PR already exists
-    const prList = execSync(`gh pr list --head ${branchName} --json url --no-prompt`, ghOpts);
+    const prList = execSync(`"${ghBin}" pr list --head ${branchName} --json url`, ghOpts);
     const prs = JSON.parse(prList);
     if (prs.length > 0) {
       prUrl = prs[0].url;
@@ -170,7 +171,7 @@ try {
         }
       } catch { }
 
-      const prOutput = execSync(`gh pr create --base main --head ${branchName} --title "${title}" --body "${body}" --no-prompt`, ghOpts);
+      const prOutput = execSync(`"${ghBin}" pr create --base main --head ${branchName} --title "${title}" --body "${body}"`, ghOpts);
       prUrl = prOutput.trim();
       console.log(`✓ Created PR: ${prUrl}`);
     }

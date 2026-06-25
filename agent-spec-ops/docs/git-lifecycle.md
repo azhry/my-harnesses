@@ -87,17 +87,16 @@ changed, why, and how to verify it.
 - Related MRs/Issues: <links>
 ```
 
-### How to use this template with submit-task.js
+### How submit-task.js creates the PR description
 
-1. Create a markdown file in your run directory (e.g. `runs/<DELIVERY_ID>/pr-<TASK_ID>.md`)
-2. Write your meaningful PR description using the template format above.
-3. Pass the file to `submit-task.js` using the `--pr-body-file` flag:
+The script auto-generates the PR body from `templates/pull-request-template.md`— it replaces `<TASK_ID>` and `<DELIVERY_ID>` placeholders with the actual values from your workflow state. You do NOT need to create a separate PR body file.
 
 ```bash
 node scripts/submit-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> \
   --commit-msg "feat: <TASK_ID>: your message here" \
-  --test-command "npm test" \
-  --pr-body-file runs/<DELIVERY_ID>/pr-<TASK_ID>.md
+  --test-command "npm test"
 ```
+
+Do NOT create `pr-body-*.md` or `pr-*.md` files — they are unnecessary. The script handles the PR body automatically.
 
 Do NOT use `gh pr create` manually. The automated script is strictly required.

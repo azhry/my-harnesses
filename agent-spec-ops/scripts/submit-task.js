@@ -11,15 +11,12 @@ const taskId = args[1];
 
 let commitMsg = "";
 let testCommand = "";
-let prBodyFile = "";
 
 for (let i = 2; i < args.length; i++) {
   if (args[i] === "--commit-msg" && i + 1 < args.length) {
     commitMsg = args[++i];
   } else if (args[i] === "--test-command" && i + 1 < args.length) {
     testCommand = args[++i];
-  } else if (args[i] === "--pr-body-file" && i + 1 < args.length) {
-    prBodyFile = args[++i];
   }
 }
 
@@ -111,9 +108,11 @@ if (testCommand && testCommand.trim().length > 0 && !testCommand.includes("echo"
   console.log(`✓ Skipping tests (no valid command provided)`);
 }
 
-// Write test output to file
-const testLogFile = `test-output-${taskId}.log`;
-fs.writeFileSync(path.join(runDir, testLogFile), testOutput);
+// Write test output to test-output/ subdirectory
+const testOutputDir = path.join(runDir, "test-output");
+fs.mkdirSync(testOutputDir, { recursive: true });
+const testLogFile = path.join("test-output", `${taskId}.log`);
+fs.writeFileSync(path.join(testOutputDir, `${taskId}.log`), testOutput);
 
 // Record tests in state
 task.test = {
@@ -161,13 +160,9 @@ try {
       const title = `[${deliveryId}] ${taskId}: ${task.title}`;
       let body = `Closes ${taskId}\n\n${task.description}`;
       try {
-        if (prBodyFile && fs.existsSync(prBodyFile)) {
-          body = fs.readFileSync(prBodyFile, "utf8");
-        } else {
-          const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
-          if (fs.existsSync(templatePath)) {
-            body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
-          }
+        const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
+        if (fs.existsSync(templatePath)) {
+          body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
         }
       } catch { }
 

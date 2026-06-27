@@ -14,6 +14,7 @@ const { appendEvent, appendTokenUsageRow, readCsv } = require("./lib/memory-stor
 const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy } = require("./lib/policy");
+const { loadSecretEnv } = require("./lib/env-loader");
 const harnessRoot = path.resolve(__dirname, "..");
 
 const ALLOWED_TRANSITIONS = {
@@ -66,6 +67,7 @@ if (!taskStatuses.includes(nextStatus)) {
 }
 
 const statePath = path.resolve(file);
+loadSecretEnv(statePath);
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
 
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks)

@@ -6,11 +6,10 @@ const path = require("path");
 const { execSync } = require("child_process");
 const { loadSecretEnv } = require("./lib/env-loader");
 
-loadSecretEnv();
-
 const args = process.argv.slice(2);
 const stateFile = args[0];
 const taskId = args[1];
+loadSecretEnv(stateFile);
 
 let commitMsg = "";
 let testCommand = "";

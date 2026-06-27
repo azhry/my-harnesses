@@ -15,26 +15,29 @@ directory.
 
 ## Two Paths
 
-### Path A: Human provides a Stitch link + API key (recommended)
+### Path A: Human provides a Stitch link (recommended)
 
-The human may provide a Google Stitch project URL directly along with their API
-key, instead of only a project ID. In this case, use `fetch-stitch-designs.js`
-to fetch the screens programmatically.
+The human may provide a Google Stitch project URL directly. Store
+`GOOGLE_STITCH_API_KEY` in the harness or run-local secrets file, then use
+`fetch-stitch-designs.js` to fetch the screens programmatically. Do not ask the
+human to paste the raw key into chat once the secrets file is configured.
 
 **Google Stitch uses JSON-RPC, not REST.** The script sends JSON-RPC POST
 requests by default, with a configurable method name and parameters.
 
-### Path B: Human provides only a project ID
+### Path B: Human provides project ID plus endpoint
 
-Fallback path where the human returns with only a Stitch project ID in the
-gate approval_note. Use `fetch-stitch-designs.js` with the project ID and
-probe available methods with `--list-methods`.
+Fallback path where the human returns with a Stitch project ID and the API
+endpoint/project URL in the gate approval_note. Use `fetch-stitch-designs.js`
+with both `--url` and `--project-id`, then probe available methods with
+`--list-methods`.
 
 ## Flow
 
 1. `ui_design_prompt` → agent writes the Stitch prompt.
-2. `waiting_for_design_stitch` → human provides a Stitch link + API key (Path A)
-   or returns with a **Stitch project ID** in the gate approval_note (Path B).
+2. `waiting_for_design_stitch` → human provides a Stitch link (Path A) or
+   returns with a **Stitch project ID plus endpoint** in the gate approval_note
+   (Path B). `GOOGLE_STITCH_API_KEY` is loaded from secrets.
 3. `design_assembly` → agent runs `fetch-stitch-designs.js` to fetch and save
    design screens to `runs/<DELIVERY_ID>/design-assets/`.
 4. `system_rules` → proceeds with system rule derivation.
@@ -48,26 +51,41 @@ probe available methods with `--list-methods`.
 
 1. Transition from `ui_design_prompt` to `waiting_for_design_stitch`.
 2. Present the Stitch prompt to the human and ask them to generate screens in
-   Google Stitch, then provide the Stitch project URL and API key.
-3. Wait for the human to provide the Stitch link + API key (or project ID in
+   Google Stitch, then provide the Stitch project URL or endpoint/project ID.
+3. Wait for the human to provide the Stitch link (or endpoint/project ID in
    gate approval_note).
 4. Once the gate is approved, transition to `design_assembly`.
 
 ### Fetching screens with fetch-stitch-designs.js
 
-**Standard usage (human provided URL + API key):**
+Put the key in one of the auto-loaded secrets files first:
 
 ```bash
-GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+GOOGLE_STITCH_API_KEY=replace_me
+```
+
+Supported locations are:
+
+```text
+runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env
+.agent-spec-ops.secrets.env
+.env.agent-spec-ops
+```
+
+**Standard usage (human provided URL):**
+
+```bash
+node scripts/fetch-stitch-designs.js \
   runs/<DELIVERY_ID>/workflow-state.json \
   --url <stitch_project_url>
 ```
 
-**With only a project ID:**
+**With a project ID and endpoint:**
 
 ```bash
-GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+node scripts/fetch-stitch-designs.js \
   runs/<DELIVERY_ID>/workflow-state.json \
+  --url <stitch_endpoint_or_project_url> \
   --project-id <id> --list-methods
 ```
 
@@ -75,15 +93,16 @@ The `--list-methods` flag probes common JSON-RPC method names and reports
 which one works. Once you know the method name:
 
 ```bash
-GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+node scripts/fetch-stitch-designs.js \
   runs/<DELIVERY_ID>/workflow-state.json \
+  --url <stitch_endpoint_or_project_url> \
   --project-id <id> --method <method_name>
 ```
 
 **With custom JSON-RPC params:**
 
 ```bash
-GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+node scripts/fetch-stitch-designs.js \
   runs/<DELIVERY_ID>/workflow-state.json \
   --url https://stitch.google.com/api \
   --method exportScreens \
@@ -93,7 +112,7 @@ GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
 **If the endpoint uses REST instead of JSON-RPC:**
 
 ```bash
-GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+node scripts/fetch-stitch-designs.js \
   runs/<DELIVERY_ID>/workflow-state.json \
   --url <url> --rest
 ```
@@ -101,7 +120,7 @@ GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
 **List screens without saving:**
 
 ```bash
-GOOGLE_STITCH_API_KEY=<key> node scripts/fetch-stitch-designs.js \
+node scripts/fetch-stitch-designs.js \
   runs/<DELIVERY_ID>/workflow-state.json \
   --url <url> --list-screens
 ```

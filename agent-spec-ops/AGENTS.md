@@ -60,9 +60,9 @@ project scope, architecture, or task graph changes significantly.
   only safe metadata such as key presence, fingerprint, team ID, project ID, and
   verification time.
 - To avoid re-entering credentials every session, put them in
-  `.agent-spec-ops.secrets.env` or point `AGENT_SPEC_OPS_SECRETS_FILE` to an
-  external env file. These files are auto-loaded by harness scripts and must
-  remain untracked.
+  `.agent-spec-ops.secrets.env`, `runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env`,
+  or point `AGENT_SPEC_OPS_SECRETS_FILE` to an external env file. These files
+  are auto-loaded by harness scripts and must remain untracked.
 - If `workflow-state.json` becomes noisy, run
   `node scripts/compact-state.js runs/<DELIVERY_ID>/workflow-state.json`.
 - Do not invent implementation scope in dev roles. If scope is missing or
@@ -107,8 +107,11 @@ project scope, architecture, or task graph changes significantly.
   `ui_design_prompt` → `waiting_for_design_stitch` (human gate) →
   `design_assembly` → `system_rules`. After writing the Stitch prompt, you
   MUST transition to `waiting_for_design_stitch` and present the prompt to the
-  human. Ask them to provide a Stitch project URL + `GOOGLE_STITCH_API_KEY`
-  (or at minimum a project ID). Once the gate is approved, transition to
+  human. Ask them to provide a Stitch project URL or endpoint/project ID. The
+  `GOOGLE_STITCH_API_KEY` should come from `.agent-spec-ops.secrets.env`,
+  `runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env`, or
+  `AGENT_SPEC_OPS_SECRETS_FILE`; do not ask for the raw key in chat when a
+  secrets file is configured. Once the gate is approved, transition to
   `design_assembly` and run `fetch-stitch-designs.js` to fetch the screens.
   **Google Stitch uses JSON-RPC, not REST** — always use
   `fetch-stitch-designs.js`, never `curl` or generic HTTP tools. Check the

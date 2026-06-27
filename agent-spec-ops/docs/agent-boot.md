@@ -8,7 +8,7 @@ Read this packet after `read-context.js` and before acting.
 - Use `workflow-state.json` as the operational record; do not rely on chat memory.
 - Use Linear for task management and knowledge sync when policy requires it.
 - Store raw keys only in environment variables. State may store only safe metadata.
-- Long-lived local credentials may live in `.agent-spec-ops.secrets.env`; that file is gitignored and auto-loaded by harness scripts.
+- Long-lived local credentials may live in `.agent-spec-ops.secrets.env` at the harness root, or in `runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env` for run-specific credentials; those files are gitignored and auto-loaded by harness scripts.
 - Use transition scripts for state and task status changes.
 - Use `compact-state.js` when `workflow-state.json` becomes noisy.
 

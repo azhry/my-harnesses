@@ -34,6 +34,7 @@ export LINEAR_API_KEY="lin_api_..."
 export LINEAR_TEAM_ID="..."
 export LINEAR_PROJECT_ID="..."   # recommended when creating issues
 export GITHUB_TOKEN="ghp_..."    # or GH_TOKEN
+export GOOGLE_STITCH_API_KEY="..." # optional, for fetching Google Stitch designs
 ```
 
 PowerShell:
@@ -43,10 +44,11 @@ $env:LINEAR_API_KEY="lin_api_..."
 $env:LINEAR_TEAM_ID="..."
 $env:LINEAR_PROJECT_ID="..."
 $env:GITHUB_TOKEN="ghp_..."
+$env:GOOGLE_STITCH_API_KEY="..."
 ```
 
-For sessions that should remember credentials automatically, copy the example
-file and fill in real values:
+For sessions that should remember credentials automatically for every run under
+this harness, copy the example file to the harness root and fill in real values:
 
 ```bash
 cp .agent-spec-ops.secrets.env.example .agent-spec-ops.secrets.env
@@ -59,8 +61,26 @@ Copy-Item .agent-spec-ops.secrets.env.example .agent-spec-ops.secrets.env
 ```
 
 `.agent-spec-ops.secrets.env` is gitignored and loaded by harness scripts before
-they check Linear/GitHub configuration. You can also keep the file outside the
-repo and point to it once from your shell profile:
+they check external-tool configuration, including Linear, GitHub, and Google
+Stitch.
+
+For different credentials per work item, put a secrets file inside that run:
+
+```text
+runs/MY-001/.agent-spec-ops.secrets.env
+```
+
+State-aware scripts load secrets in this order:
+
+```text
+1. AGENT_SPEC_OPS_SECRETS_FILE
+2. runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env
+3. agent-spec-ops/.agent-spec-ops.secrets.env
+4. agent-spec-ops/.env.agent-spec-ops
+```
+
+Earlier files win for variables they define. You can also keep the file outside
+the repo and point to it once from your shell profile:
 
 ```bash
 export AGENT_SPEC_OPS_SECRETS_FILE="$HOME/.config/agent-spec-ops/secrets.env"

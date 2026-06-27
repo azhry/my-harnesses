@@ -9,6 +9,7 @@ const { appendEvent } = require("./lib/memory-store");
 const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy } = require("./lib/policy");
+const { loadSecretEnv } = require("./lib/env-loader");
 
 const [file, nextState, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
@@ -25,6 +26,7 @@ if (!states.includes(nextState)) {
 }
 
 const statePath = path.resolve(file);
+loadSecretEnv(statePath);
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
 const currentState = state.current_state;
 

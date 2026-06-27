@@ -13,7 +13,7 @@ function loadState(statePath) {
 }
 
 function getLinearConfig(stateOrPath) {
-  loadSecretEnv();
+  loadSecretEnv(typeof stateOrPath === "string" ? stateOrPath : "");
   const state = typeof stateOrPath === "string" ? loadState(stateOrPath) : stateOrPath;
 
   const envKey = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";

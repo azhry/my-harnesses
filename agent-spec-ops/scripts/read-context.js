@@ -8,8 +8,6 @@ const { loadJson, readNdjson, readCsv } = require("./lib/memory-store");
 const { safeLinearMetadata } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
 
-loadSecretEnv();
-
 const file = process.argv[2];
 
 let roleName = "";
@@ -25,6 +23,7 @@ if (!file) {
 }
 
 const statePath = path.resolve(file);
+loadSecretEnv(statePath);
 if (!fs.existsSync(statePath)) {
   console.error(`State file not found: ${statePath}`);
   process.exit(1);

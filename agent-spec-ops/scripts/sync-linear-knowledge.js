@@ -6,6 +6,7 @@ const path = require("path");
 const { appendEvent, loadKnowledgeCards } = require("./lib/memory-store");
 const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy } = require("./lib/policy");
+const { loadSecretEnv } = require("./lib/env-loader");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -23,6 +24,7 @@ if (!args.stateFile) {
 const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 const statePath = path.resolve(args.stateFile);
+loadSecretEnv(statePath);
 const runDir = path.dirname(statePath);
 const deliveryId = path.basename(runDir);
 try {
@@ -35,7 +37,7 @@ try {
 let LINEAR_API_KEY = "";
 try {
   const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-  const cfg = getLinearConfig(state);
+  const cfg = getLinearConfig(statePath);
   LINEAR_API_KEY = cfg.api_key;
 } catch {}
 if (!LINEAR_API_KEY) {

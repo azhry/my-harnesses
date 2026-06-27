@@ -5,6 +5,7 @@ const path = require("path");
 const { states } = require("./state-machine");
 const { getLinearConfig, linearMetadataFromEnv } = require("./linear-config");
 const { readNdjson } = require("./memory-store");
+const { loadSecretEnv } = require("./env-loader");
 
 const root = path.resolve(__dirname, "../..");
 
@@ -38,6 +39,7 @@ function shouldEnforceLinear(state, nextState = "") {
 function enforcePolicy(statePath, options = {}) {
   const policy = loadPolicy();
   const resolved = path.resolve(statePath);
+  loadSecretEnv(resolved);
   const state = JSON.parse(fs.readFileSync(resolved, "utf8"));
   const nextState = options.nextState || "";
   const errors = [];

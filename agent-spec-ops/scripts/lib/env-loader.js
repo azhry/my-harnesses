@@ -9,23 +9,19 @@ const DEFAULT_SECRET_FILES = [
   path.join(root, ".env.agent-spec-ops")
 ];
 
-let loaded = false;
 let loadedFiles = [];
+const loadedFileSet = new Set();
 
-function loadSecretEnv() {
-  if (loaded) {
-    return loadedFiles;
-  }
-  loaded = true;
-
+function loadSecretEnv(stateFile) {
   const candidates = [
     process.env.AGENT_SPEC_OPS_SECRETS_FILE || "",
+    runSecretFile(stateFile),
     ...DEFAULT_SECRET_FILES
   ].filter(Boolean);
 
   for (const file of candidates) {
     const resolved = path.resolve(file);
-    if (!fs.existsSync(resolved)) {
+    if (!fs.existsSync(resolved) || loadedFileSet.has(resolved)) {
       continue;
     }
     const contents = fs.readFileSync(resolved, "utf8");
@@ -45,9 +41,20 @@ function loadSecretEnv() {
       }
     }
     loadedFiles.push(resolved);
+    loadedFileSet.add(resolved);
   }
 
   return loadedFiles;
+}
+
+function runSecretFile(stateFile) {
+  if (!stateFile) {
+    return "";
+  }
+  const resolved = path.resolve(stateFile);
+  const basename = path.basename(resolved);
+  const runDir = basename === "workflow-state.json" ? path.dirname(resolved) : resolved;
+  return path.join(runDir, ".agent-spec-ops.secrets.env");
 }
 
 function unquote(value) {
@@ -60,4 +67,4 @@ function unquote(value) {
   return value;
 }
 
-module.exports = { loadSecretEnv };
+module.exports = { loadSecretEnv, runSecretFile };

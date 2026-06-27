@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { appendEvent } = require("./lib/memory-store");
 const { getLinearConfig } = require("./lib/linear-config");
+const { loadSecretEnv } = require("./lib/env-loader");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -21,8 +22,9 @@ if (!args.stateFile) {
 const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 const statePath = path.resolve(args.stateFile);
+loadSecretEnv(statePath);
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-const linearCfg = getLinearConfig(state);
+const linearCfg = getLinearConfig(statePath);
 const LINEAR_API_KEY = linearCfg.api_key;
 const LINEAR_TEAM_ID = linearCfg.team_id;
 

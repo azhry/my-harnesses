@@ -6,8 +6,9 @@ const path = require("path");
 const { execSync } = require("child_process");
 const { states, transitions, canTransition } = require("./lib/state-machine");
 const { appendEvent } = require("./lib/memory-store");
-const { checkContext } = require("./lib/context-check");
+const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
+const { enforcePolicy } = require("./lib/policy");
 
 const [file, nextState, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
@@ -224,6 +225,12 @@ if (currentState === "task_breakdown" && nextState === "waiting_for_delivery_pla
   }
 }
 
+try {
+  enforcePolicy(statePath, { phase: "transition", nextState });
+} catch (error) {
+  errors.push(error.message);
+}
+
 if (errors.length) {
   console.error("Transition rejected:");
   for (const error of errors) {
@@ -330,6 +337,10 @@ state.log.push({
 });
 
 fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+updateSessionMarker(statePath, {
+  state: nextState,
+  state_updated_at: state.delivery.updated_at
+});
 console.log(`OK: ${currentState} -> ${nextState}`);
 
 appendEvent(statePath, {

@@ -8,52 +8,94 @@ implemented and verified frontend/backend delivery work.
 ```mermaid
 stateDiagram-v2
   [*] --> intake
+
+  state "Readiness Gate" as readiness_gate {
+    tool_readiness --> waiting_for_tool_readiness_review
+    waiting_for_tool_readiness_review --> knowledge_discovery: approved
+    waiting_for_tool_readiness_review --> tool_readiness_revision: changes requested
+    tool_readiness_revision --> tool_readiness
+  }
+
+  state "Product Gate" as product_gate {
+    product_requirements --> ui_design_prompt
+    ui_design_prompt --> waiting_for_design_stitch
+    waiting_for_design_stitch --> design_assembly: approved
+    design_assembly --> system_rules
+    system_rules --> waiting_for_product_review
+    waiting_for_product_review --> product_approved: approved
+    waiting_for_product_review --> product_revision: changes requested
+    product_revision --> product_requirements
+  }
+
+  state "Delivery Plan Gate" as plan_gate {
+    task_breakdown --> waiting_for_delivery_plan_review
+    waiting_for_delivery_plan_review --> delivery_plan_approved: approved
+    waiting_for_delivery_plan_review --> task_revision: changes requested
+    task_revision --> task_breakdown
+  }
+
+  state "Implementation Lanes" as implementation_lanes {
+    implementation_in_progress --> frontend_dev
+    implementation_in_progress --> backend_dev
+    frontend_dev --> frontend_test
+    frontend_test --> frontend_dev: test failure
+    frontend_test --> frontend_verified
+    frontend_verified --> implementation_in_progress: backend still open
+    backend_dev --> backend_test
+    backend_test --> backend_dev: test failure
+    backend_test --> backend_verified
+    backend_verified --> implementation_in_progress: frontend still open
+    frontend_verified --> integration_verification
+    backend_verified --> integration_verification
+  }
+
   intake --> tool_readiness
-  tool_readiness --> waiting_for_tool_readiness_review
-  waiting_for_tool_readiness_review --> knowledge_discovery
-  waiting_for_tool_readiness_review --> tool_readiness_revision
-  tool_readiness_revision --> tool_readiness
   knowledge_discovery --> product_requirements
-  product_requirements --> ui_design_prompt
-  ui_design_prompt --> waiting_for_design_stitch
-  waiting_for_design_stitch --> design_assembly
-  design_assembly --> system_rules
-  system_rules --> waiting_for_product_review
-  waiting_for_product_review --> product_approved
-  waiting_for_product_review --> product_revision
-  product_revision --> product_requirements
   product_approved --> task_breakdown
-  task_breakdown --> waiting_for_delivery_plan_review
-  waiting_for_delivery_plan_review --> delivery_plan_approved
-  waiting_for_delivery_plan_review --> task_revision
-  task_revision --> task_breakdown
   delivery_plan_approved --> implementation_in_progress
-  implementation_in_progress --> frontend_dev
-  implementation_in_progress --> backend_dev
-  frontend_dev --> frontend_test
-  frontend_test --> frontend_dev
-  frontend_test --> frontend_verified
-  backend_dev --> backend_test
-  backend_test --> backend_dev
-  backend_test --> backend_verified
-  frontend_verified --> integration_verification
-  backend_verified --> integration_verification
   integration_verification --> implementation_in_progress
-  integration_verification --> waiting_for_final_review
+  integration_verification --> knowledge_improvement
+  knowledge_improvement --> waiting_for_final_review
+  knowledge_improvement --> implementation_in_progress
   waiting_for_final_review --> done
-  waiting_for_final_review --> implementation_in_progress
+  waiting_for_final_review --> task_breakdown: rework requested
+
   intake --> blocked
   tool_readiness --> blocked
   waiting_for_tool_readiness_review --> blocked
+  tool_readiness_revision --> blocked
   knowledge_discovery --> blocked
   product_requirements --> blocked
+  ui_design_prompt --> blocked
+  waiting_for_design_stitch --> blocked
+  design_assembly --> blocked
+  system_rules --> blocked
+  waiting_for_product_review --> blocked
+  product_revision --> blocked
+  product_approved --> blocked
   task_breakdown --> blocked
+  waiting_for_delivery_plan_review --> blocked
+  task_revision --> blocked
+  delivery_plan_approved --> blocked
   implementation_in_progress --> blocked
   frontend_dev --> blocked
   frontend_test --> blocked
+  frontend_verified --> blocked
   backend_dev --> blocked
   backend_test --> blocked
+  backend_verified --> blocked
   integration_verification --> blocked
+  knowledge_improvement --> blocked
+  waiting_for_final_review --> blocked
+
+  blocked --> intake
+  blocked --> tool_readiness
+  blocked --> waiting_for_tool_readiness_review
+  blocked --> knowledge_discovery
+  blocked --> product_requirements
+  blocked --> task_breakdown
+  blocked --> implementation_in_progress
+  blocked --> knowledge_improvement
 ```
 
 ## State Definitions
@@ -85,6 +127,7 @@ stateDiagram-v2
 | `backend_test` | Backend Test | Create/run unit/integration tests; pass or return failure | Test evidence or failure report |
 | `backend_verified` | Orchestrator | Mark backend lane verified | All BE tasks verified |
 | `integration_verification` | Orchestrator | Run contract checks, scope checks, acceptance checks, and full evidence review | Passing integration evidence |
+| `knowledge_improvement` | Orchestrator | Promote reusable lessons, sync knowledge, and record improvement actions before final review | Knowledge cards/evidence synced or explicitly waived |
 | `waiting_for_final_review` | Human | Approve final result or request rework | Final gate decision |
 | `done` | Orchestrator | Produce final handoff and close run | Handoff report |
 | `blocked` | Any | Stop because progress requires external input/change | Blocker with owner |
@@ -135,3 +178,9 @@ node scripts/transition.js runs/<DELIVERY_ID>/workflow-state.json <next_state> "
 
 The transition script rejects illegal state moves and records successful moves
 in `log[]`.
+
+## State Size
+
+Use `scripts/compact-state.js` to keep the state file operational. See
+[state-size.md](state-size.md) for the recommended split-state migration and
+tradeoffs.

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "task_management": {
+    "required_provider": "linear",
+    "require_linear_ids_from_state": "waiting_for_delivery_plan_review",
+    "forbid_local_only_tasks_from_state": "delivery_plan_approved"
+  },
+  "knowledge_storage": {
+    "required_provider": "linear",
+    "require_sync_before_state": "waiting_for_final_review",
+    "allow_local_candidates": true
+  },
+  "secrets": {
+    "store_raw_values": false,
+    "allowed_locations": ["environment"],
+    "scan_run_files": true
+  },
+  "state_compaction": {
+    "max_log_entries": 80,
+    "max_loop_history_entries": 20,
+    "max_task_loop_history_entries": 20
+  },
+  "instructions": {
+    "default_mode": "compact",
+    "full_role_docs_require_flag": true
+  }
+}

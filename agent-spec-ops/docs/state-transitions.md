@@ -4,19 +4,105 @@ Every task must move through its lane state machine using
 `scripts/transition-task.js`. Do **not** edit `task.status` directly in the
 state file.
 
+## State Machine Weaknesses To Guard Against
+
+The harness is intentionally redundant: scripts enforce the machine, docs teach
+the agent, and `workflow-state.json` survives compaction. Failures usually come
+from drift between those layers. Treat these as active risks:
+
+- **Contract drift**: `scripts/lib/state-machine.js`, `schemas/workflow-state.schema.json`, `harness.yaml`, examples, and docs must name the same states.
+- **Conversation memory drift**: any instruction, API configuration, gate decision, blocker, or task status that only exists in chat is considered lost.
+- **Implicit transition criteria**: if a state exit requires evidence, the evidence must be in state or a run artifact before the transition command runs.
+- **Direct state edits**: hand-editing `workflow-state.json` can bypass script checks and create invalid top-level/task correlations.
+- **Stale recovery context**: after compaction, interruption, or visible state changes, run `read-context.js` again before acting.
+
+`scripts/validate-harness.js` must fail if the machine-readable state lists drift.
+
+## Policy, State Size, And Instruction Size
+
+Policy is enforced by `harness-policy.json` plus `scripts/lib/policy.js`.
+Agents should not treat policy rules as prose preferences. If Linear, secret
+storage, task IDs, or knowledge sync violate policy, mutating scripts must fail.
+
+Keep `workflow-state.json` operational, not archival. When logs or loop history
+grow large, run:
+
+```bash
+node scripts/compact-state.js runs/<DELIVERY_ID>/workflow-state.json
+```
+
+This moves older history to `runs/<DELIVERY_ID>/archives/` and writes
+`workflow-summary.json` for quick recovery.
+
+Keep instruction loading just-in-time. After `read-context.js`, run:
+
+```bash
+node scripts/read-instructions.js runs/<DELIVERY_ID>/workflow-state.json --role <ROLE>
+```
+
+Read full docs only when the compact packet points to a specific need.
+
 ```bash
 node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> <STATUS> "[NOTE]"
 ```
 
 ### Task Lane Transitions
 
+```mermaid
+stateDiagram-v2
+  [*] --> planned
+  planned --> active: dependencies verified + WIP open
+  planned --> blocked
+  planned --> waived
+  planned --> not_applicable
+  active --> implemented: changed files + evidence recorded
+  active --> failed
+  active --> blocked
+  implemented --> testing: tests ready/running
+  implemented --> failed
+  implemented --> blocked
+  testing --> verified: tests, git, scope, tokens pass
+  testing --> implemented: rework from test findings
+  testing --> failed
+  testing --> blocked
+  failed --> active: retry within max_attempts
+  failed --> blocked: max_attempts or external decision needed
+  blocked --> active: blocker resolved
 ```
-planned  ──→ active ──→ implemented ──→ testing ──→ verified
-  │          │              │               │
-  └──→ blocked              └──→ failed ────┘
-       waived
-       not_applicable
-```
+
+### Top-Level Transition Checklist
+
+Use this checklist before every `scripts/transition.js` call. If any required
+item is missing, update state/artifacts first or stop at the correct blocker.
+
+| Transition | Required checklist |
+| --- | --- |
+| `intake → tool_readiness` | `delivery.id`, `delivery.title`, `delivery.request_summary`, source links/target users when known |
+| `tool_readiness → waiting_for_tool_readiness_review` | `tool_readiness.status` is `ready` or `partial`; tracker and code host choices recorded; human instructions prepared and sent |
+| `waiting_for_tool_readiness_review → knowledge_discovery` | `gates.tool_readiness_review.status=approved`; approver, note, timestamp, and evidence recorded |
+| `waiting_for_tool_readiness_review → tool_readiness_revision` | Requested changes recorded in gate evidence/blocker; readiness issue owner clear |
+| `knowledge_discovery → product_requirements` | Sources/findings/gaps recorded; open gaps are accepted risk or under budget |
+| `product_requirements → ui_design_prompt` | Product requirements artifact path/status/evidence recorded |
+| `ui_design_prompt → waiting_for_design_stitch` | Stitch prompt artifact ready; human instructions sent with decision options/questions |
+| `waiting_for_design_stitch → design_assembly` | `gates.design_stitch.status=approved`; Stitch project URL/ID or explicit fallback recorded |
+| `design_assembly → system_rules` | Design assets saved under `runs/<DELIVERY_ID>/design-assets/`; fetch failures are not treated as evidence |
+| `system_rules → waiting_for_product_review` | Requirements, Stitch prompt, design assets, and system rules are ready for review; human instructions sent |
+| `waiting_for_product_review → product_approved` | Product gate approved with approver, note, timestamp, and artifact evidence |
+| `waiting_for_product_review → product_revision` | Requested changes recorded; affected artifacts identified |
+| `product_approved → task_breakdown` | Product baseline frozen; no unresolved product blockers |
+| `task_breakdown → waiting_for_delivery_plan_review` | Every task has description, DoD, expected changes, verification, scope, dependencies checked, and Linear IDs when Linear is configured; human instructions sent |
+| `waiting_for_delivery_plan_review → delivery_plan_approved` | Delivery plan gate approved with approver, note, timestamp, and evidence |
+| `waiting_for_delivery_plan_review → task_revision` | Requested changes recorded; affected tasks identified |
+| `delivery_plan_approved → implementation_in_progress` | Approved scope populated; task graph approved; dispatch mode decided |
+| `implementation_in_progress → frontend_dev/backend_dev` | At least one dependency-ready task exists in that lane; WIP=1 not violated |
+| `frontend_dev/backend_dev → frontend_test/backend_test` | Active task is `implemented`; changed files, deviations, and implementation evidence recorded |
+| `frontend_test/backend_test → frontend_verified/backend_verified` | All tasks in that lane are `verified`, `waived`, or `not_applicable` |
+| `frontend_verified/backend_verified → integration_verification` | All required frontend and backend tasks are `verified`, `waived`, or `not_applicable` |
+| `integration_verification → knowledge_improvement` | Integration checks pass or are explicitly waived; contract/scope/acceptance evidence recorded |
+| `knowledge_improvement → waiting_for_final_review` | Reusable knowledge promoted or waiver recorded; Linear knowledge sync attempted when configured; final review instructions sent |
+| `waiting_for_final_review → done` | Final gate approved; handoff artifact ready; clean-state checks complete |
+| `waiting_for_final_review → task_breakdown` | Use `scripts/reopen-delivery.js`; rework reason recorded; final review gate reset |
+| `any → blocked` | Blocker has owner, evidence, and next required external action |
 
 ### Rules Per Transition
 
@@ -174,3 +260,9 @@ This dumps current state, task summary, Linear mappings, token totals,
 tool readiness, and gate status. If any fields appear stale (e.g., old
 timestamps, zero token counts after known work), update them before
 proceeding.
+
+Context recovery is also required after compaction, interruption, role handoff,
+or any time `workflow-state.json` changed outside the current script. Transition
+scripts maintain a `.session.json` marker and reject stale context. If rejected,
+run `read-context.js` again, re-read the role instructions in the output, then
+retry the transition.

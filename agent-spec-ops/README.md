@@ -35,6 +35,9 @@ promoted, in `knowledge/cards/`.
 
 ## Quick Start
 
+For a step-by-step agent setup guide for Codex, OpenCode, and similar coding
+agents, see [docs/usage.md](docs/usage.md).
+
 Create a new workflow run:
 
 ```bash
@@ -168,6 +171,17 @@ blocked
 ```
 
 See [docs/workflow.md](docs/workflow.md) for the transition graph.
+
+## State Size
+
+The operational state can be compacted:
+
+```bash
+node scripts/compact-state.js runs/FTR-123/workflow-state.json
+```
+
+For the split-state design and tradeoffs, see
+[docs/state-size.md](docs/state-size.md).
 
 ## Automatic Agent Dispatch
 

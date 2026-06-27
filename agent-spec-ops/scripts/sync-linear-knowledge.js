@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { appendEvent, loadKnowledgeCards } = require("./lib/memory-store");
 const { getLinearConfig } = require("./lib/linear-config");
+const { enforcePolicy } = require("./lib/policy");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -24,6 +25,12 @@ const GRAPHQL_URL = "https://api.linear.app/graphql";
 const statePath = path.resolve(args.stateFile);
 const runDir = path.dirname(statePath);
 const deliveryId = path.basename(runDir);
+try {
+  enforcePolicy(statePath, { phase: "linear_knowledge_sync" });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
 let LINEAR_API_KEY = "";
 try {

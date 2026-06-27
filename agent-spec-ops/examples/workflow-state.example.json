@@ -86,29 +86,29 @@
     "status": "ready",
     "checked_at": "2026-06-19T00:03:00.000Z",
     "choices": {
-      "product_tracker": "atlassian",
-      "code_host": "gitlab"
+      "product_tracker": "linear",
+      "code_host": "github"
     },
     "capabilities": [
       {
         "name": "product_tracker",
-        "provider": "atlassian",
+        "provider": "linear",
         "required": true,
         "status": "available",
-        "verification": "ATLASSIAN_API_TOKEN present in environment",
+        "verification": "LINEAR_API_KEY present in environment",
         "evidence": [
-          "Atlassian token environment variable is present"
+          "Linear token environment variable is present"
         ],
         "blocker": ""
       },
       {
         "name": "code_host",
-        "provider": "gitlab",
+        "provider": "github",
         "required": true,
         "status": "available",
-        "verification": "GRAB_GITLAB_ACCESS_TOKEN present in environment",
+        "verification": "GITHUB_TOKEN present in environment",
         "evidence": [
-          "GitLab token environment variable is present"
+          "GitHub token environment variable is present"
         ],
         "blocker": ""
       }
@@ -312,6 +312,7 @@
     "tasks": [
       {
         "id": "FE-001",
+        "linear_id": "LIN-FE-001",
         "title": "Add cancellation reason selector",
         "role": "frontend_dev",
         "lane": "frontend",
@@ -357,6 +358,9 @@
           "deviations": []
         },
         "test": {
+          "status": "not_started",
+          "last_run_at": "",
+          "output_file": "",
           "cases": [],
           "commands": [],
           "evidence": [],
@@ -394,6 +398,7 @@
       },
       {
         "id": "FET-001",
+        "linear_id": "LIN-FET-001",
         "title": "Test cancellation reason selector",
         "role": "frontend_test",
         "lane": "frontend",
@@ -440,6 +445,9 @@
           "deviations": []
         },
         "test": {
+          "status": "not_started",
+          "last_run_at": "",
+          "output_file": "",
           "cases": [],
           "commands": [],
           "evidence": [],
@@ -477,6 +485,7 @@
       },
       {
         "id": "BE-001",
+        "linear_id": "LIN-BE-001",
         "title": "Persist cancellation reason",
         "role": "backend_dev",
         "lane": "backend",
@@ -522,6 +531,9 @@
           "deviations": []
         },
         "test": {
+          "status": "not_started",
+          "last_run_at": "",
+          "output_file": "",
           "cases": [],
           "commands": [],
           "evidence": [],
@@ -559,6 +571,7 @@
       },
       {
         "id": "BET-001",
+        "linear_id": "LIN-BET-001",
         "title": "Unit test cancellation reason persistence",
         "role": "backend_test",
         "lane": "backend",
@@ -603,6 +616,9 @@
           "deviations": []
         },
         "test": {
+          "status": "not_started",
+          "last_run_at": "",
+          "output_file": "",
           "cases": [],
           "commands": [],
           "evidence": [],
@@ -640,6 +656,7 @@
       },
       {
         "id": "INT-001",
+        "linear_id": "LIN-INT-001",
         "title": "Verify frontend/backend cancellation contract",
         "role": "orchestrator",
         "lane": "integration",
@@ -680,6 +697,9 @@
           "deviations": []
         },
         "test": {
+          "status": "not_started",
+          "last_run_at": "",
+          "output_file": "",
           "cases": [],
           "commands": [],
           "evidence": [],
@@ -1065,12 +1085,12 @@
       "knowledge/promoted"
     ],
     "local_task_provider": {
-      "enabled": true,
-      "mode": "local",
-      "reason": "Local task storage is always available and used when Linear/Jira is unavailable.",
-      "external_provider": "",
-      "sync_status": "local_only",
-      "last_synced_at": "",
+      "enabled": false,
+      "mode": "external",
+      "reason": "Linear is the required task system of record.",
+      "external_provider": "linear",
+      "sync_status": "synced",
+      "last_synced_at": "2026-06-19T00:31:00.000Z",
       "path": "tasks.json"
     },
     "last_event_id": "",

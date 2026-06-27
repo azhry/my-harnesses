@@ -120,7 +120,8 @@ const loopStatuses = [
   "passed",
   "failed",
   "blocked",
-  "waived"
+  "waived",
+  "completed"
 ];
 
 function canTransition(from, to) {

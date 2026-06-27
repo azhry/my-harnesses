@@ -5,8 +5,9 @@ through frontend/backend implementation and verification.
 
 ## Session Start (Required)
 
-When starting a new session on an existing delivery, immediately run context
-recovery to restore Linear/project/token awareness and get role-specific instructions:
+When starting a new session on an existing delivery, after session compaction,
+after interruption, or after a role handoff, immediately run context recovery to
+restore Linear/project/token awareness and get role-specific instructions:
 
 ```bash
 node scripts/read-context.js runs/<DELIVERY_ID>/workflow-state.json --role <YOUR_CURRENT_ROLE>
@@ -16,6 +17,21 @@ The `--role` argument is highly recommended, as it will append specific instruct
 This dumps current state, task summary, Linear issue mappings, token totals,
 tool readiness status, and gate status. Read the output carefully before taking
 any action. Do not assume context from previous sessions carries over.
+
+Before any state transition or task transition, confirm the context recovery
+output still matches `workflow-state.json`. The transition scripts write and
+check `runs/<DELIVERY_ID>/.session.json`; if they reject stale context, rerun
+`read-context.js`, re-read the role instructions printed at the end, and retry.
+Do not continue from chat memory after compaction.
+
+For compact just-in-time instructions, run:
+
+```bash
+node scripts/read-instructions.js runs/<DELIVERY_ID>/workflow-state.json --role <YOUR_CURRENT_ROLE>
+```
+
+Use `read-context.js --full-instructions` only when the compact packet is not
+enough.
 
 **First-time project initialization:** If this is a brand-new delivery (no
 existing project repo yet), generate a project-level README.md after context
@@ -36,6 +52,15 @@ project scope, architecture, or task graph changes significantly.
 ## Operating Rules
 
 - Treat `workflow-state.json` as the operational record.
+- Treat `harness-policy.json` as the executable policy contract. Mutating
+  scripts call `scripts/enforce-policy.js`/`scripts/lib/policy.js` and must fail
+  closed when policy is violated.
+- Linear is the required system of record for task management and promoted
+  knowledge. Raw API keys must stay in environment variables; state may store
+  only safe metadata such as key presence, fingerprint, team ID, project ID, and
+  verification time.
+- If `workflow-state.json` becomes noisy, run
+  `node scripts/compact-state.js runs/<DELIVERY_ID>/workflow-state.json`.
 - Do not invent implementation scope in dev roles. If scope is missing or
   conflicting, record a blocker and route the loop back to Product Manager or
   Project Manager.
@@ -98,16 +123,18 @@ project scope, architecture, or task graph changes significantly.
   syncing to Linear, always set these fields — the Linear sync
   (`sync-linear-task.js`) reads them to build the Linear issue body.
 - **When LINEAR_API_KEY is configured, create tasks directly in Linear — do NOT
-  create task-breakdown.md.** The `task-breakdown.md` template is only a
-  fallback for when Linear is unavailable. If `LINEAR_API_KEY` is set:
+  create task-breakdown.md.** Harness policy requires Linear as the task system
+  of record after readiness. The `task-breakdown.md` template is only a
+  bootstrap fallback before Linear is available. If `LINEAR_API_KEY` is set:
   1. Create the task graph in `workflow-state.json` (task_graph.tasks[])
   2. Run `node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --create`
      to push all tasks to Linear as real issues
   3. Sync and manage those issues in Linear from that point on
   4. Do NOT write `task-breakdown.md` — it duplicates work and confuses the
      agent into treating a local file as the source of truth
-  If `LINEAR_API_KEY` is NOT set, create `task-breakdown.md` as a local
-  documentation artifact.
+  If `LINEAR_API_KEY` is NOT set, stop at readiness/planning and record a
+  blocker. Do not proceed into approved delivery execution with local-only task
+  management.
 - **Task names must be clean descriptions.** A task name is
   something like "[FE-001] Implement login feature" or "Add error handling to API
   endpoint". Do NOT prefix task names with "RUN CODE", "TASK", "FEATURE",
@@ -165,7 +192,7 @@ To view your specific role instructions, use the `--role` argument when running 
 
 > [!TIP]
 > **Context Management**
-> Do not guess or assume instructions for specific phases. Use iew_file to read the relevant document in the docs/ folder ONLY when you are actively working on that phase.
+> Do not guess or assume instructions for specific phases. Read the relevant document in the docs/ folder ONLY when you are actively working on that phase.
 
 - **Tool Readiness & Tools**: docs/tool-readiness.md
 - **Local Memory & Events**: docs/local-memory.md

@@ -8,6 +8,7 @@ const {
   writeEventMarkdown,
   writeKnowledgeCard
 } = require("./lib/memory-store");
+const { enforcePolicy } = require("./lib/policy");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -31,6 +32,13 @@ if (!args.stateFile || !args.summary) {
     "  --repo NAME       repeatable or comma-separated",
     "  --service NAME    repeatable or comma-separated"
   ].join("\n"));
+  process.exit(1);
+}
+
+try {
+  enforcePolicy(args.stateFile, { phase: "event_record" });
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
 

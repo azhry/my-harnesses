@@ -36,6 +36,8 @@
         "version": { "type": "string" }
       }
     },
+    "workspace_root": { "type": "string" },
+    "linear_config": { "$ref": "#/$defs/linearConfig" },
     "current_state": {
       "enum": [
         "intake",
@@ -63,6 +65,7 @@
         "backend_test",
         "backend_verified",
         "integration_verification",
+        "knowledge_improvement",
         "waiting_for_final_review",
         "done",
         "blocked"
@@ -391,6 +394,7 @@
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
+        "linear_id": { "type": "string" },
         "title": { "type": "string" },
         "request_summary": { "type": "string" },
         "source_links": { "type": "array", "items": { "type": "string" } },
@@ -567,9 +571,12 @@
         "git_flow": { "$ref": "#/$defs/gitFlow" },
         "test": {
           "type": "object",
-          "required": ["cases", "commands", "evidence", "failures"],
+          "required": ["status", "last_run_at", "output_file", "cases", "commands", "evidence", "failures"],
           "additionalProperties": false,
           "properties": {
+            "status": { "enum": ["not_started", "passed", "failed", "blocked", "waived"] },
+            "last_run_at": { "type": "string" },
+            "output_file": { "type": "string" },
             "cases": { "type": "array", "items": { "type": "string" } },
             "commands": { "type": "array", "items": { "type": "string" } },
             "evidence": { "type": "array", "items": { "type": "string" } },
@@ -584,7 +591,7 @@
       "required": ["status", "attempt", "max_attempts", "last_failure", "history"],
       "additionalProperties": false,
       "properties": {
-        "status": { "enum": ["not_started", "in_progress", "passed", "failed", "blocked", "waived"] },
+        "status": { "enum": ["not_started", "in_progress", "passed", "failed", "blocked", "waived", "completed"] },
         "attempt": { "type": "integer", "minimum": 0 },
         "max_attempts": { "type": "integer", "minimum": 1 },
         "last_failure": { "type": "string" },
@@ -963,6 +970,19 @@
     },
     "confidence": {
       "enum": ["low", "medium", "high", "unknown"]
+    },
+    "linearConfig": {
+      "type": "object",
+      "required": ["provider", "api_key_present", "api_key_fingerprint", "team_id", "project_id", "last_verified_at"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "const": "linear" },
+        "api_key_present": { "type": "boolean" },
+        "api_key_fingerprint": { "type": "string" },
+        "team_id": { "type": "string" },
+        "project_id": { "type": "string" },
+        "last_verified_at": { "type": "string" }
+      }
     }
   }
 }

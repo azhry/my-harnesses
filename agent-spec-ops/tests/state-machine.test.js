@@ -11,8 +11,8 @@ const SCRIPTS = path.join(ROOT, "scripts");
 const TMP = path.join(ROOT, ".test-tmp");
 
 function runScript(script, args = [], options = {}) {
-  const cmd = `node "${path.join(SCRIPTS, script)}" ${args.map(a => `"${a}"`).join(" ")}`;
-    const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1", SKIP_CONTEXT_CHECK: "1", SKIP_DOCKER_VERIFY: "1" }, ...options };
+  const cmd = `"${process.execPath}" "${path.join(SCRIPTS, script)}" ${args.map(a => `"${a}"`).join(" ")}`;
+    const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1", SKIP_CONTEXT_CHECK: "1", SKIP_DOCKER_VERIFY: "1", LINEAR_API_KEY: "lin_test_12345678901234567890", LINEAR_TEAM_ID: "team-test" }, ...options };
   try {
     const stdout = execSync(cmd, execOptions);
     return { stdout: stdout.trim(), stderr: "", exitCode: 0 };
@@ -48,6 +48,15 @@ function baseState() {
   state.memory.token_usage_csv_path = "token-usage.csv";
   state.memory.knowledge_dirs = ["knowledge/candidates", "knowledge/promoted"];
   state.memory.event_count = 0;
+  state.memory.local_task_provider = {
+    enabled: false,
+    mode: "external",
+    reason: "Test fixture uses Linear as task system of record.",
+    external_provider: "linear",
+    sync_status: "synced",
+    last_synced_at: new Date().toISOString(),
+    path: "tasks.json"
+  };
   state.task_graph = state.task_graph || {};
   state.task_graph.tasks = [];
   state.roles = state.roles || {};
@@ -82,6 +91,7 @@ function baseState() {
 function makeFeTask(id, deps = []) {
   return {
     id,
+    linear_id: `lin-${id}`,
     title: `FE task ${id}`,
     role: "frontend_dev",
     status: "planned",
@@ -115,6 +125,7 @@ function makeFeTask(id, deps = []) {
 function makeBeTask(id, deps = []) {
   return {
     id,
+    linear_id: `lin-${id}`,
     title: `BE task ${id}`,
     role: "backend_dev",
     status: "planned",

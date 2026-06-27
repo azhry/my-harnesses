@@ -11,8 +11,9 @@ const {
 } = require("./lib/state-machine");
 const { execSync } = require("child_process");
 const { appendEvent, appendTokenUsageRow, readCsv } = require("./lib/memory-store");
-const { checkContext } = require("./lib/context-check");
+const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
+const { enforcePolicy } = require("./lib/policy");
 const harnessRoot = path.resolve(__dirname, "..");
 
 const ALLOWED_TRANSITIONS = {
@@ -261,6 +262,13 @@ if (errors.length) {
   process.exit(1);
 }
 
+try {
+  enforcePolicy(statePath, { phase: "task_transition", taskId, nextStatus });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
 const now = new Date().toISOString();
 task.status = nextStatus;
 task.loop = task.loop || { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] };
@@ -313,6 +321,11 @@ state.log.push({
 });
 
 fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+updateSessionMarker(statePath, {
+  state: state.current_state,
+  state_updated_at: state.delivery.updated_at,
+  tasks_verified: tasks.filter((t) => t.status === "verified").length
+});
 
 console.log(`OK: ${taskId} ${currentStatus} -> ${nextStatus}`);
 

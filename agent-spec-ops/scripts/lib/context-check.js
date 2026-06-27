@@ -39,6 +39,13 @@ function readSessionMarker(stateFile) {
   }
 }
 
+function updateSessionMarker(stateFile, updates) {
+  const mp = markerPathForState(stateFile);
+  const existing = readSessionMarker(stateFile) || {};
+  fs.mkdirSync(path.dirname(mp), { recursive: true });
+  fs.writeFileSync(mp, JSON.stringify({ ...existing, ...updates }, null, 2) + "\n");
+}
+
 function requireContext(label) {
   return checkContext(label);
 }
@@ -66,7 +73,24 @@ function checkContext(label, stateFile) {
     console.error(`   Then retry: ${label}`);
     process.exit(1);
   }
+  if (stateFile && fs.existsSync(path.resolve(stateFile))) {
+    try {
+      const state = JSON.parse(fs.readFileSync(path.resolve(stateFile), "utf8"));
+      const stateUpdatedAt = state.delivery && state.delivery.updated_at ? state.delivery.updated_at : "";
+      if (stateUpdatedAt && marker.state_updated_at && stateUpdatedAt !== marker.state_updated_at) {
+        console.error(`⚠  State changed after context recovery. Refresh before mutating state:`);
+        console.error(`   node scripts/read-context.js ${stateFile}`);
+        console.error(`   Then retry: ${label}`);
+        process.exit(1);
+      }
+    } catch {
+      console.error(`⚠  Could not compare state freshness. Refresh context first:`);
+      console.error(`   node scripts/read-context.js ${stateFile}`);
+      console.error(`   Then retry: ${label}`);
+      process.exit(1);
+    }
+  }
   return marker;
 }
 
-module.exports = { checkContext, readSessionMarker, MAX_AGE_MS };
+module.exports = { checkContext, readSessionMarker, updateSessionMarker, MAX_AGE_MS };

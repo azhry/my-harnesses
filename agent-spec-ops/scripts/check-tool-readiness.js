@@ -10,6 +10,7 @@ const {
   loadJson,
   writeJson
 } = require("./lib/memory-store");
+const { safeLinearMetadata } = require("./lib/policy");
 
 const args = parseArgs(process.argv.slice(2));
 const stateFile = args.stateFile;
@@ -457,6 +458,14 @@ function updateStateFile(file, readiness) {
   let state = JSON.parse(fs.readFileSync(statePath, "utf8"));
   const now = readiness.checked_at;
   state.tool_readiness = readiness;
+  if (readiness.choices && readiness.choices.product_tracker === "linear") {
+    state.linear_config = {
+      ...safeLinearMetadata(),
+      team_id: process.env.LINEAR_TEAM_ID || (state.linear_config && state.linear_config.team_id) || "",
+      project_id: process.env.LINEAR_PROJECT_ID || (state.linear_config && state.linear_config.project_id) || "",
+      last_verified_at: readiness.status === "ready" ? now : (state.linear_config && state.linear_config.last_verified_at) || ""
+    };
+  }
   state.delivery.updated_at = now;
   state.log.push({
     at: now,

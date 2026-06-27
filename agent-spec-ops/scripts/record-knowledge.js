@@ -12,6 +12,7 @@ const {
   root,
   writeKnowledgeCard
 } = require("./lib/memory-store");
+const { enforcePolicy } = require("./lib/policy");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -43,6 +44,13 @@ if (!KNOWLEDGE_KINDS.includes(args.kind)) {
 
 if (!KNOWLEDGE_STATUSES.includes(args.status)) {
   console.error(`Unknown knowledge status: ${args.status}`);
+  process.exit(1);
+}
+
+try {
+  enforcePolicy(args.stateFile, { phase: "knowledge_record" });
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
 

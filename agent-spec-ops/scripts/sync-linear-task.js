@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { appendEvent } = require("./lib/memory-store");
 const { getLinearConfig } = require("./lib/linear-config");
+const { enforcePolicy, safeLinearMetadata } = require("./lib/policy");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -24,6 +25,12 @@ const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 const statePath = path.resolve(args.stateFile);
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+try {
+  enforcePolicy(statePath, { phase: "linear_task_sync" });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const linearCfg = getLinearConfig(state);
 const LINEAR_API_KEY = linearCfg.api_key;
 const LINEAR_TEAM_ID = linearCfg.team_id;
@@ -56,7 +63,7 @@ let synced = 0;
 let errors = 0;
 let stateIdCache = null;
 
-(async () => {
+async function main() {
 let teamIdToUse = LINEAR_TEAM_ID;
 if (!teamIdToUse && targetTasks.some((t) => t.linear_id)) {
   const firstId = targetTasks.find((t) => t.linear_id).linear_id;
@@ -205,23 +212,50 @@ for (const task of targetTasks) {
     console.log(`SKIP ${task.id}: no linear_id and --create not set`);
   }
 }
-})();
 
-appendEvent(statePath, {
-  type: "linear_sync",
-  role_context: "orchestrator",
-  task_id: args.taskId || "",
-  target: "linear_tasks",
-  summary: `Synced ${synced} tasks to Linear${errors ? ` (${errors} errors)` : ""}`,
-  details: args.dryRun ? "DRY RUN — no changes made" : `${synced} updated, ${errors} failed`,
-  severity: errors ? "warning" : "info",
-  tags: ["linear", "sync", deliveryId]
-});
+  if (synced > 0 && errors === 0 && !args.dryRun) {
+    state.linear_config = {
+      ...safeLinearMetadata(),
+      team_id: LINEAR_TEAM_ID || (state.linear_config && state.linear_config.team_id) || "",
+      project_id: LINEAR_PROJECT_ID || (state.linear_config && state.linear_config.project_id) || "",
+      last_verified_at: new Date().toISOString()
+    };
+    state.memory = state.memory || {};
+    state.memory.local_task_provider = {
+      ...(state.memory.local_task_provider || {}),
+      enabled: false,
+      mode: "external",
+      reason: "Linear is required by harness policy and is the task system of record.",
+      external_provider: "linear",
+      sync_status: "synced",
+      last_synced_at: new Date().toISOString(),
+      path: state.memory.local_tasks_path || "tasks.json"
+    };
+    state.delivery.updated_at = new Date().toISOString();
+    fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+  }
 
-console.log(`\nDone: ${synced} synced, ${errors} errors`);
-if (errors > 0) {
-  process.exit(1);
+  appendEvent(statePath, {
+    type: "linear_sync",
+    role_context: "orchestrator",
+    task_id: args.taskId || "",
+    target: "linear_tasks",
+    summary: `Synced ${synced} tasks to Linear${errors ? ` (${errors} errors)` : ""}`,
+    details: args.dryRun ? "DRY RUN — no changes made" : `${synced} updated, ${errors} failed`,
+    severity: errors ? "warning" : "info",
+    tags: ["linear", "sync", deliveryId]
+  });
+
+  console.log(`\nDone: ${synced} synced, ${errors} errors`);
+  if (errors > 0) {
+    process.exit(1);
+  }
 }
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exit(1);
+});
 
 function linearStatusFor(taskStatus) {
   const statusMap = {

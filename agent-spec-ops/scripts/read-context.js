@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 const { loadJson, readNdjson, readCsv } = require("./lib/memory-store");
+const { safeLinearMetadata } = require("./lib/policy");
 
 const file = process.argv[2];
 
@@ -13,6 +14,7 @@ const roleIndex = process.argv.indexOf("--role");
 if (roleIndex > -1 && roleIndex + 1 < process.argv.length) {
   roleName = process.argv[roleIndex + 1];
 }
+const fullInstructions = process.argv.includes("--full-instructions");
 
 if (!file) {
   console.error("Usage: node scripts/read-context.js path/to/workflow-state.json [--role <ROLE>]");
@@ -218,11 +220,17 @@ if (fs.existsSync(eventsPath)) {
 const markerDir = path.basename(path.dirname(runDir)) === "runs"
   ? runDir
   : path.join(HARNESS_ROOT, "runs", deliveryId);
+const roleInstructionFiles = roleName
+  ? ["AGENTS.md", "docs/state-transitions.md", `docs/role-${roleName}.md`]
+  : ["AGENTS.md", "docs/state-transitions.md"];
 fs.mkdirSync(markerDir, { recursive: true });
 fs.writeFileSync(path.join(markerDir, ".session.json"), JSON.stringify({
   delivery_id: deliveryId,
   started_at: new Date().toISOString(),
+  state_updated_at: updatedAt,
   state: currentState,
+  role: roleName,
+  instruction_files: roleInstructionFiles,
   tasks_total: tasks.length,
   tasks_verified: tasks.filter((t) => t.status === "verified").length,
   tokens: tokens ? tokens.total_tokens : 0,
@@ -237,9 +245,9 @@ const LINEAR_API_KEY_ENV = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCE
 const LINEAR_TEAM_ID_ENV = process.env.LINEAR_TEAM_ID || "";
 const LINEAR_PROJECT_ID_ENV = process.env.LINEAR_PROJECT_ID || "";
 
-// Restore Linear config from state if env vars not set
+// Restore only safe Linear metadata from state. Raw keys must stay in env.
 const savedConfig = state.linear_config || {};
-const effectiveApiKey = LINEAR_API_KEY_ENV || savedConfig.api_key || "";
+const effectiveApiKey = LINEAR_API_KEY_ENV || "";
 const effectiveTeamId = LINEAR_TEAM_ID_ENV || savedConfig.team_id || "";
 const effectiveProjectId = LINEAR_PROJECT_ID_ENV || savedConfig.project_id || "";
 
@@ -247,16 +255,21 @@ console.log(`  API Key:    ${effectiveApiKey ? `✓ ${effectiveApiKey.slice(0, 1
 console.log(`  Team ID:    ${effectiveTeamId ? `${effectiveTeamId} (${LINEAR_TEAM_ID_ENV ? "env" : "saved in state"})` : "✗ NOT SET"}`);
 console.log(`  Project ID: ${effectiveProjectId ? `${effectiveProjectId} (${LINEAR_PROJECT_ID_ENV ? "env" : "saved in state"})` : "not set (optional)"}`);
 
-// Persist Linear config to state so agent remembers across sessions
-if (effectiveApiKey || effectiveTeamId || effectiveProjectId) {
+// Persist safe Linear metadata to state so the agent remembers configuration
+// shape across sessions without storing raw secrets.
+if (effectiveApiKey || effectiveTeamId || effectiveProjectId || savedConfig.api_key) {
+  const metadata = safeLinearMetadata();
   state.linear_config = {
-    api_key: effectiveApiKey,
+    ...metadata,
+    api_key_present: Boolean(effectiveApiKey),
+    api_key_fingerprint: metadata.api_key_fingerprint || savedConfig.api_key_fingerprint || "",
     team_id: effectiveTeamId,
-    project_id: effectiveProjectId
+    project_id: effectiveProjectId,
+    last_verified_at: savedConfig.last_verified_at || ""
   };
   state.delivery.updated_at = new Date().toISOString();
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
-  console.log(`  Config saved to state — agent will remember next session.`);
+  console.log(`  Safe Linear metadata saved to state — raw API key was not stored.`);
 }
 
 if (!effectiveApiKey) {
@@ -271,7 +284,7 @@ if (!effectiveApiKey) {
   console.log(`\n  Linear sync skipped.\n`);
 } else {
   // Set env vars for child processes so they use the restored config
-  if (!LINEAR_API_KEY_ENV) process.env.LINEAR_API_KEY = effectiveApiKey;
+  if (!LINEAR_API_KEY_ENV && effectiveApiKey) process.env.LINEAR_API_KEY = effectiveApiKey;
   if (!LINEAR_TEAM_ID_ENV) process.env.LINEAR_TEAM_ID = effectiveTeamId;
   if (!LINEAR_PROJECT_ID_ENV) process.env.LINEAR_PROJECT_ID = effectiveProjectId;
 
@@ -336,7 +349,13 @@ if (roleName) {
     console.log(`\n${separator}`);
     console.log(`  ROLE INSTRUCTIONS: ${roleName.toUpperCase()}`);
     console.log(`${separator}\n`);
-    console.log(fs.readFileSync(roleFile, "utf8"));
+    if (fullInstructions) {
+      console.log(fs.readFileSync(roleFile, "utf8"));
+    } else {
+      console.log(`Compact mode enabled. Run this for the just-in-time packet:`);
+      console.log(`  node scripts/read-instructions.js ${file} --role ${roleName}`);
+      console.log(`Use --full-instructions on read-context.js only when you truly need the full role document.`);
+    }
   } else {
     console.log(`\n  ⚠ No specific role instructions found for "${roleName}" at ${roleFile}`);
   }

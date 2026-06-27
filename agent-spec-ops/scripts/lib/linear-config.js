@@ -15,13 +15,34 @@ function getLinearConfig(stateOrPath) {
   const state = typeof stateOrPath === "string" ? loadState(stateOrPath) : stateOrPath;
 
   const envKey = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
-  const savedKey = (state && state.linear_config && state.linear_config.api_key) || "";
 
-  const apiKey = envKey || savedKey;
+  const apiKey = envKey;
   const teamId = process.env.LINEAR_TEAM_ID || (state && state.linear_config && state.linear_config.team_id) || "";
   const projectId = process.env.LINEAR_PROJECT_ID || (state && state.linear_config && state.linear_config.project_id) || "";
 
   return { api_key: apiKey, team_id: teamId, project_id: projectId };
 }
 
-module.exports = { getLinearConfig };
+function fingerprintSecret(value) {
+  if (!value) {
+    return "";
+  }
+  if (value.length <= 12) {
+    return "***";
+  }
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
+function linearMetadataFromEnv() {
+  const apiKey = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
+  return {
+    provider: "linear",
+    api_key_present: Boolean(apiKey),
+    api_key_fingerprint: fingerprintSecret(apiKey),
+    team_id: process.env.LINEAR_TEAM_ID || "",
+    project_id: process.env.LINEAR_PROJECT_ID || "",
+    last_verified_at: ""
+  };
+}
+
+module.exports = { fingerprintSecret, getLinearConfig, linearMetadataFromEnv };

@@ -2,6 +2,9 @@
 "use strict";
 
 const https = require("https");
+const { loadSecretEnv } = require("./lib/env-loader");
+
+loadSecretEnv();
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
 

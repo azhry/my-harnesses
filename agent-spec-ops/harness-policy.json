@@ -12,7 +12,7 @@
   },
   "secrets": {
     "store_raw_values": false,
-    "allowed_locations": ["environment"],
+    "allowed_locations": ["environment", "untracked_secret_env_file"],
     "scan_run_files": true
   },
   "state_compaction": {

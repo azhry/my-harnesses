@@ -11,6 +11,9 @@ const {
   writeJson
 } = require("./lib/memory-store");
 const { safeLinearMetadata } = require("./lib/policy");
+const { loadSecretEnv } = require("./lib/env-loader");
+
+loadSecretEnv();
 
 const args = parseArgs(process.argv.slice(2));
 const stateFile = args.stateFile;

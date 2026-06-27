@@ -6,6 +6,9 @@ const path = require("path");
 const { execSync } = require("child_process");
 const { loadJson, readNdjson, readCsv } = require("./lib/memory-store");
 const { safeLinearMetadata } = require("./lib/policy");
+const { loadSecretEnv } = require("./lib/env-loader");
+
+loadSecretEnv();
 
 const file = process.argv[2];
 

@@ -25,9 +25,9 @@ node --version
 git --version
 ```
 
-Set required external-system credentials in the shell that launches the agent.
-Raw keys must stay in environment variables and must not be written to state,
-Linear issue bodies, knowledge cards, logs, or reports.
+Set required external-system credentials in the shell that launches the agent,
+or store them in the harness-local untracked secrets file. Raw keys must not be
+written to state, Linear issue bodies, knowledge cards, logs, or reports.
 
 ```bash
 export LINEAR_API_KEY="lin_api_..."
@@ -44,6 +44,36 @@ $env:LINEAR_TEAM_ID="..."
 $env:LINEAR_PROJECT_ID="..."
 $env:GITHUB_TOKEN="ghp_..."
 ```
+
+For sessions that should remember credentials automatically, copy the example
+file and fill in real values:
+
+```bash
+cp .agent-spec-ops.secrets.env.example .agent-spec-ops.secrets.env
+```
+
+PowerShell:
+
+```powershell
+Copy-Item .agent-spec-ops.secrets.env.example .agent-spec-ops.secrets.env
+```
+
+`.agent-spec-ops.secrets.env` is gitignored and loaded by harness scripts before
+they check Linear/GitHub configuration. You can also keep the file outside the
+repo and point to it once from your shell profile:
+
+```bash
+export AGENT_SPEC_OPS_SECRETS_FILE="$HOME/.config/agent-spec-ops/secrets.env"
+```
+
+PowerShell profile:
+
+```powershell
+$env:AGENT_SPEC_OPS_SECRETS_FILE="$HOME\.config\agent-spec-ops\secrets.env"
+```
+
+The state file stores only safe metadata such as key presence, masked
+fingerprint, team ID, project ID, and verification time.
 
 ## Validate The Harness
 

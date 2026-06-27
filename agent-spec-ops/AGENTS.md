@@ -59,6 +59,10 @@ project scope, architecture, or task graph changes significantly.
   knowledge. Raw API keys must stay in environment variables; state may store
   only safe metadata such as key presence, fingerprint, team ID, project ID, and
   verification time.
+- To avoid re-entering credentials every session, put them in
+  `.agent-spec-ops.secrets.env` or point `AGENT_SPEC_OPS_SECRETS_FILE` to an
+  external env file. These files are auto-loaded by harness scripts and must
+  remain untracked.
 - If `workflow-state.json` becomes noisy, run
   `node scripts/compact-state.js runs/<DELIVERY_ID>/workflow-state.json`.
 - Do not invent implementation scope in dev roles. If scope is missing or

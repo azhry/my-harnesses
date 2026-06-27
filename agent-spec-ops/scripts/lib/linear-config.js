@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { loadSecretEnv } = require("./env-loader");
 
 function loadState(statePath) {
   try {
@@ -12,6 +13,7 @@ function loadState(statePath) {
 }
 
 function getLinearConfig(stateOrPath) {
+  loadSecretEnv();
   const state = typeof stateOrPath === "string" ? loadState(stateOrPath) : stateOrPath;
 
   const envKey = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
@@ -34,6 +36,7 @@ function fingerprintSecret(value) {
 }
 
 function linearMetadataFromEnv() {
+  loadSecretEnv();
   const apiKey = process.env.LINEAR_API_KEY || process.env.LINEAR_ACCESS_TOKEN || "";
   return {
     provider: "linear",

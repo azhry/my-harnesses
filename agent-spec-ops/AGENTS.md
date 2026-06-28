@@ -49,6 +49,21 @@ node scripts/generate-project-readme.js runs/<DELIVERY_ID>/workflow-state.json \
 This creates a `README.md` in the project repo root. Regenerate it when the
 project scope, architecture, or task graph changes significantly.
 
+Also generate a project-root `AGENTS.md` so Codex/OpenCode sessions launched
+inside the project repo autoload the current delivery context after compaction,
+interruption, or handoff:
+
+```bash
+node scripts/generate-project-agents.js runs/<DELIVERY_ID>/workflow-state.json \
+  --project-repo /path/to/project/repo \
+  --role orchestrator
+```
+
+Regenerate the project `AGENTS.md` after planning changes, task sync, design
+asset fetches, major implementation changes, gate decisions, or knowledge
+promotion. The script owns only the `agent-spec-ops:managed` block and preserves
+project-specific notes outside that block.
+
 ## Operating Rules
 
 - Treat `workflow-state.json` as the operational record.
@@ -81,6 +96,10 @@ project scope, architecture, or task graph changes significantly.
 - Record durable learning in the local memory store. Disapprovals, changes,
   decisions, patterns, work completed, evals, and remarks must be written with
   the memory scripts instead of kept only in chat.
+- Keep the project repo's root `AGENTS.md` fresh with
+  `scripts/generate-project-agents.js` so future agents recover harness
+  delivery code, Linear/task workflow, design asset paths, write scopes, and
+  durable project knowledge from the repo itself.
 - A task cannot be `verified` until its declared verification evidence exists.
 - A loop cannot exceed `max_attempts`; repeated failure should transition to
   `blocked` or a human/planning gate.

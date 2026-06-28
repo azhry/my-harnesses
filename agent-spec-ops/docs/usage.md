@@ -18,11 +18,12 @@ Sibling layouts also work if `workspace_root` in
 
 ## Prerequisites
 
-The harness uses Node.js built-ins only.
+The harness uses Node.js and the dependencies declared in `package.json`.
 
 ```bash
 node --version
 git --version
+npm install
 ```
 
 Set required external-system credentials in the shell that launches the agent,
@@ -116,6 +117,23 @@ node scripts/new-delivery.js MY-001 "Short delivery title" --workspace /path/to/
 ```
 
 This creates `runs/MY-001/workflow-state.json` and the run-local memory files.
+
+## Generate Project Agent Context
+
+Write or refresh `AGENTS.md` in the project repo root so agents launched inside
+the project automatically see the harness workflow, current delivery, Linear
+sync rule, task scopes, design asset location, and durable knowledge pointers:
+
+```bash
+node scripts/generate-project-agents.js runs/MY-001/workflow-state.json \
+  --project-repo /path/to/workspace/product-repo \
+  --role orchestrator
+```
+
+Run it after task planning, Linear sync, design fetches, important project
+knowledge updates, gate decisions, and major implementation changes. The script
+updates only the `agent-spec-ops:managed` block and preserves project-specific
+content outside that block.
 
 ## Agent Startup Prompt
 

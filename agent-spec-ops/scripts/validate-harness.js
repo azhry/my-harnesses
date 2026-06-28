@@ -84,6 +84,7 @@ const requiredFiles = [
   "scripts/compact-state.js",
   "scripts/enforce-policy.js",
   "scripts/transition.js",
+  "scripts/generate-project-agents.js",
   "scripts/validate-state.js"
 ];
 
@@ -123,6 +124,7 @@ for (const relative of [
   "scripts/compact-state.js",
   "scripts/enforce-policy.js",
   "scripts/transition.js",
+  "scripts/generate-project-agents.js",
   "scripts/validate-state.js",
   "scripts/validate-harness.js"
 ]) {

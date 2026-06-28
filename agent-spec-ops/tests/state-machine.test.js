@@ -411,3 +411,54 @@ describe("validate-state.js", () => {
     assert.equal(result.exitCode, 0);
   });
 });
+
+describe("record-event.js", () => {
+  before(() => {
+    fs.mkdirSync(TMP, { recursive: true });
+  });
+
+  after(() => {
+    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
+  });
+
+  it("applies --set updates to workflow-state.json", () => {
+    const state = baseState();
+    state.gates.product_review.status = "pending";
+    state.gates.product_review.approver = "";
+    writeState(state);
+
+    const result = runScript("record-event.js", [
+      path.join(TMP, "workflow-state.json"),
+      "--type", "config_update",
+      "--summary", "Approve product gate",
+      "--set", "gates.product_review.status=approved",
+      "--set", "gates.product_review.approver=tester"
+    ]);
+
+    assert.equal(result.exitCode, 0);
+    assert.ok(result.stdout.includes("Applied 2 state update"));
+    const updated = loadState();
+    assert.equal(updated.gates.product_review.status, "approved");
+    assert.equal(updated.gates.product_review.approver, "tester");
+  });
+
+  it("parses --set JSON, boolean, and numeric values", () => {
+    const state = baseState();
+    writeState(state);
+
+    const result = runScript("record-event.js", [
+      path.join(TMP, "workflow-state.json"),
+      "--type", "config_update",
+      "--summary", "Update structured state",
+      "--set", "artifacts.demo.evidence=[1,2]",
+      "--set", "artifacts.demo.ready=true",
+      "--set", "artifacts.demo.count=2"
+    ]);
+
+    assert.equal(result.exitCode, 0);
+    const updated = loadState();
+    assert.deepEqual(updated.artifacts.demo.evidence, [1, 2]);
+    assert.equal(updated.artifacts.demo.ready, true);
+    assert.equal(updated.artifacts.demo.count, 2);
+  });
+});

@@ -149,11 +149,11 @@ const passed = allHealthy && allRunning;
 
 const { appendEvent } = require("./lib/memory-store");
 appendEvent(statePath, {
-  type: "integration_verification",
+  type: "requirement_verification",
   role_context: "orchestrator",
   task_id: "",
   target: state.current_state,
-  summary: passed ? "Integration verification passed" : "Integration verification FAILED",
+  summary: passed ? "Implementation verification passed" : "Implementation verification FAILED",
   details: JSON.stringify({
     compose_file: path.relative(workspaceRoot, composeFile),
     service_urls: serviceUrls,
@@ -161,7 +161,7 @@ appendEvent(statePath, {
     services_running: `${running}/${total}`,
   }, null, 2),
   severity: passed ? "info" : "warning",
-  tags: ["integration_verification", passed ? "passed" : "failed"],
+  tags: ["implementation_review", passed ? "passed" : "failed"],
 });
 
 runDocker("compose down");

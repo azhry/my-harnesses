@@ -12,7 +12,7 @@ if (!file || !targetPath) {
   console.error("Checks if TARGET_PATH is within the allowed write scope for the given ROLE.");
   console.error("Exits 0 if allowed, 1 if denied.");
   console.error("");
-  console.error("If ROLE is omitted, checks against all roles' scopes.");
+  console.error("ROLE is required for project writes. Harness run artifacts are always allowed.");
   process.exit(1);
 }
 
@@ -120,7 +120,7 @@ if (runDir && isWithin(runDir, resolvedTarget)) {
   process.exit(0);
 }
 
-const checkRole = role || "orchestrator";
+const checkRole = role || "";
 
 for (const entry of HARNESS_PROTECTED_FILES) {
   if (pathEquals(entry.file, resolvedTarget)) {
@@ -155,13 +155,18 @@ if (errors.length) {
 }
 
 const taskScopes = [];
+const blockedTaskScopes = [];
 
 for (const t of tasks) {
   if (t.scope && Array.isArray(t.scope.allowed_paths)) {
     for (const allowedPath of t.scope.allowed_paths) {
-      const resolvedAllowed = path.resolve(workspaceRoot, allowedPath);
-      if (isWithin(resolvedAllowed, resolvedTarget)) {
-        taskScopes.push(t.id);
+      const allowedRoots = resolveAllowedRoots(workspaceRoot, t, allowedPath);
+      if (allowedRoots.some((allowedRoot) => isWithin(allowedRoot, resolvedTarget))) {
+        if (canUseTaskScope(t, checkRole)) {
+          taskScopes.push(t.id);
+        } else {
+          blockedTaskScopes.push(`${t.id}(${t.role || "no-role"}, ${t.status || "no-status"})`);
+        }
       }
     }
   }
@@ -172,9 +177,49 @@ for (const t of tasks) {
   }
 }
 
+function resolveAllowedRoots(root, task, allowedPath) {
+  const staticPath = staticAllowedPath(allowedPath);
+  if (path.isAbsolute(staticPath)) return [path.resolve(staticPath)];
+  const roots = [path.resolve(root, staticPath)];
+  const repos = task.scope && Array.isArray(task.scope.allowed_repos)
+    ? task.scope.allowed_repos
+    : [];
+  for (const repo of repos) {
+    roots.push(path.resolve(root, repo, staticPath));
+  }
+  return [...new Set(roots)];
+}
+
+function staticAllowedPath(allowedPath) {
+  const normalized = String(allowedPath || "").replace(/\\/g, "/");
+  const wildcard = normalized.search(/[*?]/);
+  if (wildcard === -1) return normalized || ".";
+  const prefix = normalized.slice(0, wildcard);
+  const slash = prefix.lastIndexOf("/");
+  if (slash === -1) return prefix || ".";
+  return prefix.slice(0, slash + 1) || ".";
+}
+
+function canUseTaskScope(task, currentRole) {
+  if (!currentRole) return false;
+  if (task.role !== currentRole) return false;
+  return task.status === "active";
+}
+
 if (taskScopes.length) {
-  console.log(`OK: ${targetPath} is within scope of task(s): ${taskScopes.join(", ")}`);
+  console.log(`OK: ${targetPath} is within active scope of task(s): ${taskScopes.join(", ")} for role ${checkRole}`);
   process.exit(0);
+}
+
+if (blockedTaskScopes.length) {
+  if (!checkRole) {
+    console.error(`DENIED: ROLE is required for project writes. Matching task scopes: ${blockedTaskScopes.join(", ")}`);
+  } else {
+    console.error(`DENIED: ${targetPath} matches task scope, but not an active task for role ${checkRole}.`);
+    console.error(`  Matching task scopes: ${blockedTaskScopes.join(", ")}`);
+    console.error("  Start the assigned task with transition-task.js and use the matching dev/test role before editing.");
+  }
+  process.exit(1);
 }
 
 if (allAllowedRepos.size > 0 && isWithin(workspaceRoot, resolvedTarget)) {
@@ -188,9 +233,9 @@ if (allAllowedRepos.size > 0 && isWithin(workspaceRoot, resolvedTarget)) {
   }
 }
 
-console.error(`DENIED: ${targetPath} is not within any approved write scope for role ${checkRole || "unknown"}.`);
+console.error(`DENIED: ${targetPath} is not within any active approved write scope for role ${checkRole || "unknown"}.`);
 console.error(`  Your CWD appears to be: ${process.cwd()}`);
 console.error(`  Resolved target: ${resolvedTarget}`);
 console.error(`  Workspace root: ${workspaceRoot}`);
-console.error(`  Agent output must go inside runs/${deliveryId || "<DELIVERY_ID>"}/ or the project repo (e.g. ${path.join(workspaceRoot, "<repo>")}/).`);
+console.error(`  Agent output must go inside runs/${deliveryId || "<DELIVERY_ID>"}/ or an active task scope.`);
 process.exit(1);

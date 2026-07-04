@@ -2,255 +2,68 @@ name: agent-spec-ops
 version: 0.1.0
 owner: Azhary Arliansyah
 
-harness_model:
-  principle: "Reliability comes from role contracts, source-grounded knowledge, bounded loops, state, and verification evidence."
-  subsystems:
-    instructions:
-      files:
-        - AGENTS.md
-        - docs/agent-boot.md
-        - docs/usage.md
-        - docs/state-size.md
-        - docs/workflow.md
-        - docs/roles.md
-        - docs/human-gates.md
-        - docs/tool-readiness.md
-        - docs/knowledge-discovery.md
-        - docs/local-memory.md
-        - docs/monitor-ui.md
-        - docs/loops.md
-        - docs/verification.md
-    tools:
-      files:
-        - harness-policy.json
-        - scripts/new-delivery.js
-        - scripts/check-tool-readiness.js
-        - scripts/check-contracts.js
-        - scripts/check-scope.js
-        - scripts/plan-agent-dispatch.js
-        - scripts/record-agent-spawn.js
-        - scripts/record-event.js
-        - scripts/record-knowledge.js
-        - scripts/promote-knowledge.js
-        - scripts/query-knowledge.js
-        - scripts/record-eval.js
-        - scripts/record-remark.js
-        - scripts/record-token-usage.js
-        - scripts/update-local-task.js
-        - scripts/monitor-runs.js
-        - scripts/read-instructions.js
-        - scripts/compact-state.js
-        - scripts/enforce-policy.js
-        - scripts/check-harness-integrity.js
-        - scripts/check-linear-connectivity.js
-        - scripts/verify-integration.js
-        - scripts/transition.js
-        - scripts/validate-state.js
-        - scripts/validate-harness.js
-    state:
-      machine_readable: true
-      files:
-        - templates/workflow-state.json
-        - templates/tasks.json
-        - schemas/workflow-state.schema.json
-        - schemas/event.schema.json
-        - schemas/knowledge-card.schema.json
-        - schemas/local-tasks.schema.json
-    memory:
-      files:
-        - runs/<DELIVERY_ID>/events.ndjson
-        - runs/<DELIVERY_ID>/tasks.json
-        - runs/<DELIVERY_ID>/evals.csv
-        - runs/<DELIVERY_ID>/remarks.csv
-        - runs/<DELIVERY_ID>/token-usage.csv
-        - knowledge/cards/
-        - history/evals.csv
-        - history/remarks.csv
-        - history/token-usage.csv
-    monitor:
-      files:
-        - scripts/monitor-runs.js
-        - scripts/lib/monitor-data.js
-        - ui/monitor/index.html
-        - ui/monitor/styles.css
-        - ui/monitor/app.js
-    feedback:
-      files:
-        - templates/failure-report.md
-        - templates/handoff-report.md
-        - docs/loops.md
-        - docs/verification.md
-
-roles:
-  product_manager:
-    owns:
-      - requirements
-      - acceptance_criteria
-      - google_stitch_prompt
-      - design_assembly
-      - ui_rules
-      - system_rules
-      - product_open_questions
-  project_manager:
-    owns:
-      - executable_task_graph
-      - task_dependencies
-      - lane_definitions_of_done
-      - verification_mapping
-  frontend_dev:
-    owns:
-      - feature_branch_from_main
-      - frontend_implementation
-      - frontend_deviation_notes
-      - frontend_build_evidence
-      - push_after_successful_tests
-      - merge_request_to_main
-  frontend_test:
-    owns:
-      - frontend_test_cases
-      - frontend_test_execution
-      - frontend_failure_reports
-  backend_dev:
-    owns:
-      - feature_branch_from_main
-      - backend_implementation
-      - backend_deviation_notes
-      - backend_build_evidence
-      - push_after_successful_tests
-      - merge_request_to_main
-  backend_test:
-    owns:
-      - backend_unit_tests
-      - backend_integration_tests
-      - backend_failure_reports
-  orchestrator:
-    owns:
-      - state_transitions
-      - knowledge_evidence
-      - local_memory
-      - eval_and_remark_history
-      - contract_measurement
-      - scope_measurement
-      - agent_dispatch
-      - integration_verification
-      - final_handoff
+principle: "Small state machine, checklist transitions, Linear-backed tasks, parallel dev/test agents, human gates."
 
 state_order:
   - intake
   - tool_readiness
-  - waiting_for_tool_readiness_review
-  - tool_readiness_revision
   - knowledge_discovery
   - product_requirements
-  - ui_design_prompt
-  - waiting_for_design_stitch
+  - product_review
   - design_assembly
   - system_rules
-  - waiting_for_product_review
-  - product_revision
-  - product_approved
+  - system_rules_review
   - task_breakdown
-  - waiting_for_delivery_plan_review
-  - task_revision
-  - delivery_plan_approved
   - implementation_in_progress
-  - frontend_dev
-  - frontend_test
-  - frontend_verified
-  - backend_dev
-  - backend_test
-  - backend_verified
-  - integration_verification
-  - knowledge_improvement
-  - waiting_for_final_review
+  - implementation_review
   - done
   - blocked
 
 human_gates:
-  tool_readiness_review:
-    wait_state: waiting_for_tool_readiness_review
-    approved_state: knowledge_discovery
-    revision_state: tool_readiness_revision
-    required_evidence:
-      - tool_readiness.status
-      - tool_readiness.choices.product_tracker
-      - tool_readiness.choices.code_host
-      - gates.tool_readiness_review.approver
-      - gates.tool_readiness_review.approval_note
-  design_stitch:
-    wait_state: waiting_for_design_stitch
-    approved_state: design_assembly
-    required_evidence:
-      - artifacts.stitch_prompt.status
-      - gates.design_stitch.approval_note (must contain Stitch project ID)
   product_review:
-    wait_state: waiting_for_product_review
-    approved_state: product_approved
-    revision_state: product_revision
-    required_evidence:
-      - artifacts.product_requirements.status
-      - artifacts.stitch_prompt.status
-      - artifacts.system_rules.status
-      - gates.product_review.approver
-      - gates.product_review.approval_note
-  delivery_plan_review:
-    wait_state: waiting_for_delivery_plan_review
-    approved_state: delivery_plan_approved
-    revision_state: task_revision
-    required_evidence:
-      - task_graph.tasks
-      - task_graph.dependencies_checked
-      - gates.delivery_plan_review.approver
-      - gates.delivery_plan_review.approval_note
-  final_review:
-    wait_state: waiting_for_final_review
-    approved_state: done
-    revision_state: implementation_in_progress
-    required_evidence:
-      - integration.status
-      - observability.verification_records
-      - gates.final_review.approver
-      - gates.final_review.approval_note
+    pass: design_assembly
+    fail: knowledge_discovery
+  system_rules_review:
+    pass: task_breakdown
+    fail: design_assembly
+  implementation_review:
+    pass: done
+    fail: implementation_in_progress
+    rework: task_breakdown
 
-knowledge_buckets:
-  - product_knowledge
-  - design_knowledge
-  - system_knowledge
-  - repository_knowledge
-  - verification_knowledge
+implementation:
+  parallel_lanes:
+    - frontend
+    - backend
+  role_sequence:
+    frontend:
+      - frontend_dev
+      - frontend_test
+    backend:
+      - backend_dev
+      - backend_test
+  loop_max_attempts: 3
+  after_test:
+    - push_branch
+    - create_merge_request
+    - comment_merge_request_status
 
-loop_controls:
-  default_max_attempts: 3
-  escalate_when:
-    - same_failure_repeats
-    - product_rule_conflict
-    - task_requires_scope_change
-    - source_cannot_be_verified
-    - test_expectation_conflicts_with_acceptance_criteria
-
-system_of_record:
-  state_file: "runs/<DELIVERY_ID>/workflow-state.json is the operational record."
-  local_memory: "Events, local tasks, eval CSV, remarks CSV, and reusable knowledge cards are stored locally."
-  confluence: "Product requirements, system rules, and final handoff when available."
-  linear: "Optional delivery tracker for tasks and status."
-  git: "Implementation, code review, CI, and changed-file evidence."
-  test_runner: "Frontend, backend unit, and backend integration test evidence."
-
-required_templates:
-  workflow_state: templates/workflow-state.json
-  local_tasks: templates/tasks.json
-  evals_csv: templates/evals.csv
-  remarks_csv: templates/remarks.csv
-  token_usage_csv: templates/token-usage.csv
-  monitor_ui: ui/monitor/index.html
-  tool_readiness_report: templates/tool-readiness-report.md
-  product_requirements: templates/product-requirements.md
-  stitch_prompt: templates/stitch-ui-prompt.md
-  design_assets: templates/ui-design-spec.md
-  system_rules: templates/system-rules.md
-  task_breakdown: templates/task-breakdown.md
-  knowledge_discovery_report: templates/knowledge-discovery-report.md
-  frontend_test_plan: templates/frontend-test-plan.md
-  backend_test_plan: templates/backend-test-plan.md
-  failure_report: templates/failure-report.md
-  handoff_report: templates/handoff-report.md
+required_files:
+  docs:
+    - AGENTS.md
+    - README.md
+    - docs/agent-boot.md
+    - docs/workflow.md
+    - docs/state-transitions.md
+    - docs/state-machine.svg
+    - docs/roles.md
+    - docs/human-gates.md
+  scripts:
+    - scripts/read-context.js
+    - scripts/read-instructions.js
+    - scripts/transition.js
+    - scripts/transition-task.js
+    - scripts/plan-agent-dispatch.js
+    - scripts/record-agent-spawn.js
+    - scripts/sync-linear-task.js
+    - scripts/validate-state.js

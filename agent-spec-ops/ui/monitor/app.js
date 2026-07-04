@@ -12,19 +12,16 @@ const lastUpdated = document.querySelector("#lastUpdated");
 const runFilter = document.querySelector("#runFilter");
 
 const SECTION_HELP = {
-  "Current State": "Use this to see the workflow checkpoint the harness is currently in. It helps decide whether the next action is planning, implementation, verification, or human review.",
-  "Run Snapshot": "Use this for a compact read on tool readiness, tracker and code-host status, task storage mode, memory volume, token usage, and last update time.",
-  "Human Gates": "Use this to see which approval gates are ready, approved, blocked, or waiting for changes before the harness can safely advance.",
-  "Loop Pressure": "Use this to spot retry loops that are active or failing, including the attempt count and latest reason the loop did not pass.",
-  "Task Lanes": "Use this as the execution board. It groups product, planning, frontend, backend, integration, and handoff tasks with evidence, branch, merge, and token signals.",
-  "Role Board": "Use this to see what each harness role is doing now, which task it owns, and whether that role is complete, blocked, or waiting.",
-  "Integration Checks": "Use this to inspect contract and scope verification before merge or final review. Failed checks usually route work back to dev or planning.",
-  "Dispatch": "Use this to confirm whether the harness is allowed to auto-spawn agents, run frontend and backend in parallel, and maintain active leases.",
-  "Token Cost": "Use this to track total token volume and cost for the selected run, split by input, output, cached input, and reasoning tokens.",
-  "Memory Stream": "Use this as the run timeline. It records important events such as disapprovals, loop failures, tool readiness, spawns, and merge actions.",
-  "Eval Ledger": "Use this to review scored checks from each loop so the harness can compare quality over time and decide what needs another pass.",
-  "Token Ledger": "Use this to audit token and cost rows at run, task, eval, role, or tool scope. It is the raw trail behind the cost summary.",
-  "Remarks": "Use this to capture human and agent observations: disapprovals, changes, risks, reusable patterns, and completed work.",
+  "Current State": "The active checkpoint in the compact workflow.",
+  "Workflow": "The full compact state machine, including rework returning to task breakdown.",
+  "Run Snapshot": "Tool readiness, Linear/code-host setup, and last update time.",
+  "Human Gates": "Only the three human gates: product requirements, system rules, and implementation review.",
+  "Loop Pressure": "Dev/test retry loops. Attempt 3 means the user must intervene.",
+  "Task Lanes": "Parallel frontend/backend implementation lanes with separate dev and test tasks.",
+  "Role Board": "Current role ownership across orchestrator, PM, dev, and test agents.",
+  "Requirement Verification": "Implementation evidence mapped back to product requirements before done.",
+  "Dispatch": "Subagent spawn plan for parallel frontend/backend dev/test work.",
+  "Memory Stream": "Compact run timeline for state changes, rework, tests, spawns, MR comments, and merges.",
   "Artifacts": "Use this to browse all generated delivery artifacts. Click filenames to open them in the browser. Evidence items link to specific files in the run directory.",
   "Design Assets": "Use this to preview visual mockups generated from Google Stitch. Each mockup is an HTML file you can open and inspect.",
   "Test Results": "Use this to review test outcomes per task: which commands were run, which cases passed or failed, and links to test output logs.",
@@ -79,16 +76,15 @@ function render() {
 }
 
 function renderSignals(summary, run) {
-  const useTokens = run && run.token_usage && run.token_usage.total_tokens > 0;
   const metrics = [
     ["Runs", summary.total_runs],
     ["Active", summary.active_runs],
     ["Blocked", summary.blocked_runs],
     ["Tasks", summary.total_tasks],
-    ["Tokens", useTokens ? compactNumber(run.token_usage.total_tokens) : compactNumber(summary.total_tokens)],
-    ["Cost", useTokens ? money(run.token_usage.total_cost_usd) : money(summary.total_token_cost_usd)],
-    ["Events", summary.memory_events],
-    ["Knowledge", summary.knowledge_cards]
+    ["Verified", summary.verified_tasks],
+    ["Failed", summary.failed_tasks],
+    ["Gates", summary.pending_gates],
+    ["Spawns", run && run.dispatch ? run.dispatch.planned_requests : 0]
   ];
   summaryGrid.innerHTML = metrics.map(([label, value], index) => `
     <div class="signal">
@@ -122,7 +118,6 @@ function renderRunStack(runs) {
         <span class="run-entry-foot">
           ${microTag(`${run.tasks.total} tasks`)}
           ${microTag(`${run.memory.event_count} events`)}
-          ${run.token_usage.total_tokens ? microTag(`${compactNumber(run.token_usage.total_tokens)} tok / ${money(run.token_usage.total_cost_usd)}`) : ""}
           ${run.gates.waiting ? microTag(`${run.gates.waiting} gates`) : ""}
         </span>
       </span>
@@ -166,21 +161,18 @@ function renderRunDetail(run) {
 
     <div class="detail-matrix">
       ${run.human_instructions && Object.keys(run.human_instructions).length ? module("Review Instructions", reviewInstructionsHtml(run.human_instructions), "span-12") : ""}
+      ${module("Workflow", workflowHtml(run.current_state), "span-12")}
       ${module("Run Snapshot", snapshotHtml(run), "span-4")}
       ${module("Human Gates", gatesHtml(run.gates.entries), "span-4")}
       ${module("Loop Pressure", loopsHtml(run.loops.entries), "span-4")}
-      ${module("Artifacts", artifactsHtml(artifacts), "span-4")}
-      ${module("Test Results", testResultsHtml(run.test_results), "span-4")}
-      ${designFiles.length ? module("Design Assets", designAssetsHtml(designFiles), "span-4") : module("Design Assets", '<div class="blank">No design assets</div>', "span-4")}
       ${module("Task Lanes", taskLanesHtml(run.tasks.entries), "span-12")}
-      ${module("Role Board", rolesHtml(run.roles), "span-4")}
-      ${module("Integration Checks", integrationHtml(run.integration, run.contracts), "span-4")}
       ${module("Dispatch", dispatchHtml(run.dispatch), "span-4")}
-      ${module("Token Cost", tokenSummaryHtml(run.token_usage), "span-4")}
-      ${module("Memory Stream", eventsHtml(run.recent_events), "span-6")}
-      ${module("Eval Ledger", evalsHtml(run.recent_evals), "span-4")}
-      ${module("Token Ledger", tokenLedgerHtml(run.recent_token_usage), "span-8")}
-      ${module("Remarks", remarksHtml(run.recent_remarks), "span-12")}
+      ${module("Requirement Verification", integrationHtml(run.integration, run.contracts), "span-4")}
+      ${module("Test Results", testResultsHtml(run.test_results), "span-4")}
+      ${module("Artifacts", artifactsHtml(artifacts), "span-4")}
+      ${designFiles.length ? module("Design Assets", designAssetsHtml(designFiles), "span-4") : module("Design Assets", '<div class="blank">No design assets</div>', "span-4")}
+      ${module("Role Board", rolesHtml(run.roles), "span-4")}
+      ${module("Memory Stream", eventsHtml(run.recent_events), "span-8")}
     </div>
   `;
 }
@@ -209,11 +201,35 @@ function snapshotHtml(run) {
       ${datum("Readiness", tag(run.tool_readiness.status))}
       ${datum("Tracker", `${escapeHtml(run.tool_readiness.product_tracker || "unset")} ${tag(capabilityStatus(run.tool_readiness.capabilities, "product_tracker"))}`)}
       ${datum("Code Host", `${escapeHtml(run.tool_readiness.code_host || "unset")} ${tag(capabilityStatus(run.tool_readiness.capabilities, "code_host"))}`)}
-      ${datum("Task Source", `${escapeHtml(run.task_provider.mode || "unknown")} ${tag(run.task_provider.sync_status || "unknown")}`)}
-      ${datum("Memory", `${escapeHtml(run.memory.event_count)} events / ${escapeHtml(run.memory.eval_count)} evals`)}
-      ${datum("Tokens", `${compactNumber(run.token_usage.total_tokens)} / ${money(run.token_usage.total_cost_usd)}`)}
+      ${datum("Task Source", `${escapeHtml(run.task_provider.external_provider || "linear")} ${tag(run.task_provider.sync_status || "unknown")}`)}
+      ${datum("Events", `${escapeHtml(run.memory.event_count)} recorded`)}
       ${datum("Updated", formatDateTime(run.updated_at))}
     </div>
+  `;
+}
+
+function workflowHtml(currentState) {
+  const flow = [
+    "intake",
+    "tool_readiness",
+    "knowledge_discovery",
+    "product_requirements",
+    "product_review",
+    "design_assembly",
+    "system_rules",
+    "system_rules_review",
+    "task_breakdown",
+    "implementation_in_progress",
+    "implementation_review",
+    "done"
+  ];
+  return `
+    <div class="flow-strip">
+      ${flow.map((state) => `
+        <span class="flow-step ${state === currentState ? "active" : ""}">${escapeHtml(labelize(state))}</span>
+      `).join("")}
+    </div>
+    <div class="fineprint" style="margin-top:10px">Rework always returns to task breakdown. Failed product review returns to knowledge discovery. Failed system rules review returns to design assembly. Failed implementation review returns to implementation or task breakdown.</div>
   `;
 }
 
@@ -257,12 +273,12 @@ function rolesHtml(roles) {
 }
 
 function integrationHtml(integration, contracts) {
+  const acceptance = integration.acceptance_mapping || { total: 0, passed: 0, failed: 0, blocked: 0 };
   return `
     <div class="datum-grid">
       ${datum("Status", tag(integration.status))}
-      ${datum("Contracts", `${contracts.passed}/${contracts.total} passed`)}
-      ${datum("Contract Checks", `${integration.contract_checks.passed}/${integration.contract_checks.total}`)}
-      ${datum("Scope Checks", `${integration.scope_checks.passed}/${integration.scope_checks.total}`)}
+      ${datum("Requirements", `${acceptance.passed || 0}/${acceptance.total || 0} passed`)}
+      ${datum("Tests", `${integration.contract_checks.passed + integration.scope_checks.passed}/${integration.contract_checks.total + integration.scope_checks.total}`)}
       ${datum("Evidence", integration.evidence_count)}
       ${datum("Blockers", integration.blockers.length)}
     </div>
@@ -282,26 +298,11 @@ function dispatchHtml(dispatch) {
   `;
 }
 
-function tokenSummaryHtml(tokenUsage) {
-  return `
-    <div class="datum-grid">
-      ${datum("Total Tokens", compactNumber(tokenUsage.total_tokens))}
-      ${datum("Total Cost", money(tokenUsage.total_cost_usd))}
-      ${datum("Input", compactNumber(tokenUsage.input_tokens))}
-      ${datum("Output", compactNumber(tokenUsage.output_tokens))}
-      ${datum("Cached Input", compactNumber(tokenUsage.cached_input_tokens))}
-      ${datum("Reasoning", compactNumber(tokenUsage.reasoning_tokens))}
-      ${datum("Rows", tokenUsage.rows)}
-      ${datum("Updated", formatDateTime(tokenUsage.last_recorded_at))}
-    </div>
-  `;
-}
-
 const TASK_SORT_ORDER = { planned: 0, active: 1, implemented: 2, testing: 3, failed: 4, blocked: 5, verified: 6, waived: 7, not_applicable: 8 };
 
 function taskLanesHtml(tasks) {
   if (!tasks.length) return `<div class="blank">No tasks recorded</div>`;
-  const lanes = ["product", "planning", "frontend", "backend", "integration", "handoff"];
+  const lanes = ["planning", "frontend", "backend", "integration"];
   const sorted = [...tasks].sort((a, b) => (TASK_SORT_ORDER[a.status] || 9) - (TASK_SORT_ORDER[b.status] || 9) || a.id.localeCompare(b.id));
   const groups = lanes.map((lane) => [lane, sorted.filter((task) => (task.lane || laneForRole(task.role)) === lane)]);
   return `
@@ -323,6 +324,7 @@ function taskItemHtml(task) {
   const links = [];
   if (task.linear_id) links.push(`<span class="tag tag-work">${escapeHtml(task.linear_id)}</span>`);
   if (task.git && task.git.merge_request_url) links.push(`<a class="file-link" href="${escapeHtml(task.git.merge_request_url)}" target="_blank" rel="noopener">MR</a>`);
+  if (task.status === "verified" && task.git && !task.git.merged) links.push(`<span class="tag tag-danger">merge missing</span>`);
 
   return `
     <article class="task-item">
@@ -334,8 +336,6 @@ function taskItemHtml(task) {
         ${tag(task.status)}
         ${microTag(task.role || "unassigned")}
         ${task.evidence_count ? microTag(`${task.evidence_count} evidence`, "tag-note") : ""}
-        ${task.token_usage.total_tokens ? microTag(`${compactNumber(task.token_usage.total_tokens)} tok`) : ""}
-        ${task.token_usage.total_cost_usd ? microTag(money(task.token_usage.total_cost_usd)) : ""}
       </div>
       ${links.length ? `<div class="task-meta">${links.join("")}</div>` : ""}
       ${task.evidence_items && task.evidence_items.length ? evidenceList(task.evidence_items) : ""}
@@ -460,40 +460,6 @@ function eventsHtml(events) {
   }));
 }
 
-function evalsHtml(evals) {
-  if (!evals.length) return `<div class="blank">No eval rows recorded</div>`;
-  return table(["At", "Metric", "Status", "Finding"], evals.map((row) => [
-    formatDateTime(row.at),
-    row.metric,
-    tag(row.status || "observed"),
-    row.finding
-  ]));
-}
-
-function remarksHtml(remarks) {
-  if (!remarks.length) return `<div class="blank">No remarks recorded</div>`;
-  return table(["At", "Kind", "Source", "Summary", "Tags"], remarks.map((row) => [
-    formatDateTime(row.at),
-    tag(row.kind || "note"),
-    row.source,
-    row.summary,
-    row.tags
-  ]));
-}
-
-function tokenLedgerHtml(rows) {
-  if (!rows.length) return `<div class="blank">No token usage rows recorded</div>`;
-  return table(["At", "Scope", "Target", "Model", "Tokens", "Cost", "Basis"], rows.map((row) => [
-    formatDateTime(row.at),
-    tag(row.scope || "run"),
-    row.task_id || row.eval_id || row.role || row.loop || row.delivery_id,
-    row.model || row.provider || "unknown",
-    compactNumber(row.total_tokens),
-    money(row.total_cost_usd),
-    tag(row.cost_basis || "unknown")
-  ]));
-}
-
 function timeline(items, toRow) {
   if (!items.length) return `<div class="blank">No entries recorded</div>`;
   return `<div class="timeline">${items.map((item) => {
@@ -544,13 +510,13 @@ function tag(status) {
   return `<span class="tag ${statusClass(value)}">${escapeHtml(labelize(value))}</span>`;
 }
 
-function microTag(value) {
-  return `<span class="tag tag-muted">${escapeHtml(value)}</span>`;
+function microTag(value, className = "tag-muted") {
+  return `<span class="tag ${escapeAttribute(className)}">${escapeHtml(value)}</span>`;
 }
 
 function statusClass(value) {
   const status = String(value || "unknown");
-  if (["done", "approved", "passed", "ready", "verified", "complete", "synced", "available"].includes(status)) return "tag-ok";
+  if (["done", "approved", "passed", "ready", "verified", "complete", "synced", "available", "merged"].includes(status)) return "tag-ok";
   if (["blocked", "failed", "error", "missing", "requested_changes"].includes(status)) return "tag-danger";
   if (["active", "in_progress", "testing", "planned", "open", "local_only", "partial"].includes(status)) return "tag-work";
   if (["waiting", "ready_for_review", "warning", "draft"].includes(status)) return "tag-warn";
@@ -577,6 +543,7 @@ function gitBits(git) {
   if (git.tests_passed) bits.push("tests");
   if (git.pushed) bits.push("pushed");
   if (git.merge_request_status && git.merge_request_status !== "not_started") bits.push(git.merge_request_status);
+  if (git.merge_request_comment_status && git.merge_request_comment_status !== "not_started") bits.push(`MR comment ${git.merge_request_comment_status}`);
   if (git.merge_checks_passed) bits.push("checks");
   if (git.merged) bits.push("merged");
   return bits;
@@ -605,13 +572,6 @@ function compactNumber(value) {
     notation: number >= 10000 ? "compact" : "standard",
     maximumFractionDigits: number >= 10000 ? 1 : 0
   }).format(number);
-}
-
-function money(value) {
-  const number = Number(value || 0);
-  if (!Number.isFinite(number)) return "$0";
-  if (number === 0) return "$0";
-  return `$${number.toFixed(number < 0.01 ? 6 : 4).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
 function escapeHtml(value) {

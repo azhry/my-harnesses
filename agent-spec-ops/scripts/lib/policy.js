@@ -4,7 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const { states } = require("./state-machine");
 const { getLinearConfig, linearMetadataFromEnv } = require("./linear-config");
-const { readNdjson } = require("./memory-store");
 const { loadSecretEnv } = require("./env-loader");
 
 const root = path.resolve(__dirname, "../..");
@@ -50,10 +49,6 @@ function enforcePolicy(statePath, options = {}) {
     enforceLinearTaskPolicy(state, nextState, options, errors);
   }
 
-  if (policy.knowledge_storage.required_provider === "linear") {
-    enforceLinearKnowledgePolicy(resolved, state, nextState, options, errors);
-  }
-
   if (errors.length) {
     const message = [
       "Policy enforcement failed:",
@@ -89,38 +84,17 @@ function enforceLinearTaskPolicy(state, nextState, options, errors) {
   const tasks = state.task_graph && Array.isArray(state.task_graph.tasks)
     ? state.task_graph.tasks
     : [];
-  if (tasks.length && isAtOrAfter(effectiveState, "waiting_for_delivery_plan_review")) {
+  if (tasks.length && isAtOrAfter(effectiveState, "implementation_in_progress")) {
     const missing = tasks.filter((task) => !task.linear_id).map((task) => task.id);
     if (missing.length) {
-      errors.push(`All tasks must have Linear IDs before delivery plan review. Missing: ${missing.join(", ")}.`);
+      errors.push(`All tasks must have Linear IDs before implementation. Missing: ${missing.join(", ")}.`);
     }
   }
 
   const provider = state.memory && state.memory.local_task_provider;
-  if (provider && isAtOrAfter(effectiveState, "delivery_plan_approved") && options.phase !== "linear_task_sync") {
+  if (provider && isAtOrAfter(effectiveState, "implementation_in_progress") && options.phase !== "linear_task_sync") {
     if (provider.mode === "local" || provider.sync_status === "local_only") {
-      errors.push("Local-only task management is forbidden after delivery plan approval; sync tasks to Linear and set memory.local_task_provider to external or hybrid.");
-    }
-  }
-}
-
-function enforceLinearKnowledgePolicy(statePath, state, nextState, options, errors) {
-  const effectiveState = nextState || state.current_state || "";
-  const cfg = getLinearConfig(state);
-  if (isAtOrAfter(effectiveState, "knowledge_improvement") && !cfg.api_key) {
-    errors.push("Linear knowledge storage is required; LINEAR_API_KEY or LINEAR_ACCESS_TOKEN must be present before knowledge improvement/final review.");
-  }
-
-  if (effectiveState === "waiting_for_final_review" || options.phase === "final_review") {
-    const eventsPath = path.join(path.dirname(statePath), state.memory && state.memory.events_path || "events.ndjson");
-    const events = fs.existsSync(eventsPath) ? readNdjson(eventsPath) : [];
-    const hasKnowledgeSync = events.some((event) =>
-      event.type === "linear_sync" &&
-      event.target === "linear_knowledge" &&
-      event.severity !== "warning"
-    );
-    if (!hasKnowledgeSync) {
-      errors.push("Knowledge must be synced to Linear before final review, or the run must stay in knowledge_improvement.");
+      errors.push("Local-only task management is forbidden during implementation; sync tasks to Linear and set memory.local_task_provider to external.");
     }
   }
 }

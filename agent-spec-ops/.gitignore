@@ -1,5 +1,7 @@
 runs/*
 !runs/.gitkeep
+node_modules/
+.pnpm-store/
 .DS_Store
 .agent-spec-ops.secrets.env
 .env.agent-spec-ops

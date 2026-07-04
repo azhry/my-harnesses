@@ -3,11 +3,9 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
 const { states, transitions, canTransition } = require("./lib/state-machine");
 const { appendEvent } = require("./lib/memory-store");
 const { checkContext, updateSessionMarker } = require("./lib/context-check");
-const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
 
@@ -39,193 +37,8 @@ if (!canTransition(currentState, nextState)) {
 
 checkContext("transition.js");
 
-const taskList = state.task_graph && Array.isArray(state.task_graph.tasks)
-  ? state.task_graph.tasks
-  : [];
-
-const LANE_ROLE_MAP = {
-  frontend_dev: "frontend",
-  frontend_test: "frontend",
-  backend_dev: "backend",
-  backend_test: "backend",
-  orchestrator: "integration"
-};
-
-const errors = [];
-
-if (nextState === "integration_verification") {
-  const devTasks = taskList.filter((t) =>
-    ["frontend_dev", "frontend_test", "backend_dev", "backend_test"].includes(t.role)
-  );
-  const unverified = devTasks.filter((t) =>
-    !["verified", "not_applicable", "waived"].includes(t.status)
-  );
-  if (unverified.length > 0) {
-    const ids = unverified.map((t) => `${t.id} (${t.status})`).join(", ");
-    errors.push(`Cannot transition to integration_verification: unverified tasks: ${ids}`);
-  }
-
-  if (errors.length === 0) {
-    const verifyScript = path.join(__dirname, "verify-integration.js");
-    if (fs.existsSync(verifyScript) && !process.env.SKIP_INTEGRATION_VERIFY) {
-      try {
-        execSync(`node "${verifyScript}" "${statePath}"`, {
-          cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 180000
-        });
-      } catch (e) {
-        const output = (e.stdout || e.stderr || e.message || "").trim();
-        errors.push(`Integration verification failed:\n${output}`);
-      }
-    }
-  }
-}
-
-if (nextState === "frontend_verified") {
-  const feTasks = taskList.filter((t) =>
-    ["frontend_dev", "frontend_test"].includes(t.role)
-  );
-  const unverified = feTasks.filter((t) =>
-    !["verified", "not_applicable", "waived"].includes(t.status)
-  );
-  if (unverified.length > 0) {
-    const ids = unverified.map((t) => `${t.id} (${t.status})`).join(", ");
-    errors.push(`Cannot transition to frontend_verified: unverified frontend tasks: ${ids}`);
-  }
-}
-
-if (nextState === "backend_verified") {
-  const beTasks = taskList.filter((t) =>
-    ["backend_dev", "backend_test"].includes(t.role)
-  );
-  const unverified = beTasks.filter((t) =>
-    !["verified", "not_applicable", "waived"].includes(t.status)
-  );
-  if (unverified.length > 0) {
-    const ids = unverified.map((t) => `${t.id} (${t.status})`).join(", ");
-    errors.push(`Cannot transition to backend_verified: unverified backend tasks: ${ids}`);
-  }
-}
-
-if (nextState === "frontend_dev" && currentState === "implementation_in_progress") {
-  const activeFeTasks = taskList.filter((t) =>
-    LANE_ROLE_MAP[t.role] === "frontend" && t.status === "active"
-  );
-  if (activeFeTasks.length > 0) {
-    errors.push(`Frontend lane already has active tasks: ${activeFeTasks.map((t) => t.id).join(", ")}`);
-  }
-}
-
-if (nextState === "backend_dev" && currentState === "implementation_in_progress") {
-  const activeBeTasks = taskList.filter((t) =>
-    LANE_ROLE_MAP[t.role] === "backend" && t.status === "active"
-  );
-  if (activeBeTasks.length > 0) {
-    errors.push(`Backend lane already has active tasks: ${activeBeTasks.map((t) => t.id).join(", ")}`);
-  }
-}
-
-const GATES_WITH_INSTRUCTIONS = {
-  waiting_for_tool_readiness_review: "tool_readiness_review",
-  waiting_for_design_stitch: "design_stitch",
-  waiting_for_product_review: "product_review",
-  waiting_for_delivery_plan_review: "delivery_plan_review",
-  waiting_for_final_review: "final_review"
-};
-
-const gateKey = GATES_WITH_INSTRUCTIONS[nextState];
-if (gateKey) {
-  const instructions = state.human_instructions && state.human_instructions[gateKey];
-  if (!instructions || !instructions.instructions || !instructions.instructions.trim()) {
-    errors.push(`Cannot transition to ${nextState}: human_instructions.${gateKey}.instructions is empty. Generate review instructions first using scripts/record-event.js with type=human_instruction.`);
-  }
-  if (!instructions || instructions.status !== "sent") {
-    errors.push(`Cannot transition to ${nextState}: human_instructions.${gateKey}.status must be 'sent'. Use scripts/record-event.js to record that instructions were sent to the reviewer.`);
-  }
-}
-
-// === HUMAN GATE APPROVAL ENFORCEMENT: prevent agent from self-approving ===
-const GATE_APPROVAL_MAP = {
-  waiting_for_tool_readiness_review: "tool_readiness_review",
-  waiting_for_design_stitch: "design_stitch",
-  waiting_for_product_review: "product_review",
-  waiting_for_delivery_plan_review: "delivery_plan_review",
-  waiting_for_final_review: "final_review"
-};
-const APPROVED_NEXT = {
-  waiting_for_tool_readiness_review: "knowledge_discovery",
-  tool_readiness_revision: "tool_readiness",
-  waiting_for_design_stitch: "design_assembly",
-  waiting_for_product_review: "product_approved",
-  product_revision: "product_requirements",
-  waiting_for_delivery_plan_review: "delivery_plan_approved",
-  task_revision: "task_breakdown",
-  waiting_for_final_review: "done"
-};
-
-// If transitioning FROM a human gate state TO its approved next state,
-// require the gate to actually be approved by a human
-if (GATE_APPROVAL_MAP[currentState] && APPROVED_NEXT[currentState] === nextState) {
-  const gateName = GATE_APPROVAL_MAP[currentState];
-  const gate = state.gates && state.gates[gateName];
-  if (!gate || gate.status !== "approved") {
-    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" is not approved. Status: ${gate ? gate.status : "not_found"}. You forgot to get human approval. Present the review to the human, wait for their approval, and update the state.`);
-  }
-  if (!gate || !gate.approver || gate.approver === "") {
-    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no approver. You must explicitly set an approver when recording human approval.`);
-  }
-  if (!gate || !gate.decided_at) {
-    errors.push(`Cannot transition from ${currentState} to ${nextState}: gate "${gateName}" has no decided_at timestamp. The human decision must be recorded with a timestamp.`);
-  }
-}
-
-if (nextState === "waiting_for_final_review") {
-  const integrityScript = path.join(__dirname, "check-harness-integrity.js");
-  if (fs.existsSync(integrityScript) && !process.env.SKIP_INTEGRITY_CHECK) {
-    try {
-      execSync(`node "${integrityScript}" "${statePath}"`, {
-        cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 15000
-      });
-    } catch (e) {
-      const output = (e.stdout || e.stderr || e.message || "").trim();
-      errors.push(`Harness integrity check failed:\n${output}`);
-    }
-  }
-
-  if (errors.length === 0 && !process.env.SKIP_DOCKER_VERIFY) {
-    const verifyScript = path.join(__dirname, "verify-integration.js");
-    if (fs.existsSync(verifyScript)) {
-      try {
-        execSync(`node "${verifyScript}" "${statePath}"`, {
-          cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 120000
-        });
-        console.log(`  Integration verification (docker compose): passed`);
-      } catch (e) {
-        const output = (e.stdout || e.stderr || e.message || "").trim();
-        if (output.includes("No docker-compose file found") || output.includes("No repos defined")) {
-          console.log(`  Integration verification: skipped (no docker compose)`);
-        } else {
-          errors.push(`Integration (docker compose) verification failed at final review:\n${output}`);
-        }
-      }
-    }
-  }
-}
-
-// === LINEAR ENFORCEMENT: tasks MUST have linear_ids before delivery plan review ===
-if (currentState === "task_breakdown" && nextState === "waiting_for_delivery_plan_review") {
-  const tasks = Array.isArray(state.task_graph && state.task_graph.tasks)
-    ? state.task_graph.tasks : [];
-  const tasksWithoutLinear = tasks.filter(t => !t.linear_id);
-  if (tasksWithoutLinear.length > 0) {
-    const ids = tasksWithoutLinear.map(t => t.id).join(", ");
-    const linearCfg = getLinearConfig(state);
-    if (linearCfg.api_key) {
-      errors.push(`Tasks missing Linear IDs: ${ids}. Run "node scripts/sync-linear-task.js ${path.relative(process.cwd(), statePath).replace(/\\/g, "/")} --create" to create Linear issues, then retry.`);
-    } else {
-      errors.push(`Tasks missing Linear IDs: ${ids}. LINEAR_API_KEY is not configured. Either set the env var and run sync-linear-task.js --create, or set linear_id on each task manually before retrying.`);
-    }
-  }
-}
+const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
+const errors = checklistErrors(state, currentState, nextState);
 
 try {
   enforcePolicy(statePath, { phase: "transition", nextState });
@@ -235,101 +48,25 @@ try {
 
 if (errors.length) {
   console.error("Transition rejected:");
-  for (const error of errors) {
-    console.error(`- ${error}`);
-  }
+  for (const error of errors) console.error(`- ${error}`);
   process.exit(1);
 }
 
 const now = new Date().toISOString();
 
-if (currentState === "task_breakdown" && nextState === "waiting_for_delivery_plan_review") {
-  if (Array.isArray(state.loops)) {
-    const loopCount = state.loops.length;
-    state.loops.push({
-      name: `loop_${loopCount + 1}`,
-      attempt: 1,
-      max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
-        ? state.agent_dispatch.max_attempts : 3,
-      last_failure: "",
-      status: "planned"
-    });
-  }
-}
-
 if (nextState === "implementation_in_progress") {
-  if (Array.isArray(state.loops)) {
-    const activeLoop = state.loops.find((l) => l.status === "planned");
-    if (activeLoop) {
-      activeLoop.status = "active";
-    } else {
-      state.loops.push({
-        name: `loop_${state.loops.length + 1}`,
-        attempt: 1,
-        max_attempts: state.agent_dispatch && state.agent_dispatch.max_attempts
-          ? state.agent_dispatch.max_attempts : 3,
-        last_failure: "",
-        status: "active"
-      });
-    }
-  }
-
-  // Auto-create Linear issues for all planned tasks
-  const linearCfg = getLinearConfig(state);
-  if (linearCfg.api_key) {
-    const syncScript = path.join(__dirname, "sync-linear-task.js");
-    if (fs.existsSync(syncScript)) {
-      try {
-        execSync(`node "${syncScript}" "${statePath}" --create`, {
-          cwd: path.resolve(__dirname, ".."), encoding: "utf8", stdio: "pipe", timeout: 60000
-        });
-        console.log(`  Auto-created Linear issues for planned tasks`);
-      } catch (e) {
-        const msg = (e.stdout || e.stderr || e.message || "").trim().slice(0, 200);
-        console.warn(`  Linear issue creation had issues (non-blocking): ${msg}`);
-      }
-    }
-  }
+  state.agent_dispatch = state.agent_dispatch || {};
+  state.agent_dispatch.mode = state.agent_dispatch.mode || "multi_agent";
+  state.agent_dispatch.parallel_allowed = true;
+  state.agent_dispatch.max_parallel_agents = Math.max(Number(state.agent_dispatch.max_parallel_agents || 0), 2);
 }
 
-if (nextState === "done") {
-  if (Array.isArray(state.loops)) {
-    const activeLoop = state.loops.find((l) => l.status === "active");
-    if (activeLoop) {
-      activeLoop.status = "completed";
-    }
-  }
-}
-
-const runDir = path.dirname(statePath);
-const tokenUsagePath = path.join(runDir, "token-usage.csv");
-if (fs.existsSync(tokenUsagePath)) {
-  const tokenLines = fs.readFileSync(tokenUsagePath, "utf8").split(/\r?\n/).filter((l) => l.trim());
-  if (tokenLines.length <= 1) {
-    console.warn("⚠  No token usage recorded yet. Run scripts/record-token-usage.js before this transition.");
-  }
-} else {
-  console.warn("⚠  No token usage recorded yet. Run scripts/record-token-usage.js before this transition.");
-}
-
-if (nextState === "knowledge_improvement" || nextState === "waiting_for_final_review") {
-  const linearCfg = getLinearConfig(state);
-  const syncScript = path.join(__dirname, "sync-linear-knowledge.js");
-  if (linearCfg.api_key && fs.existsSync(syncScript)) {
-    try {
-      execSync(`node "${syncScript}" "${statePath}"`, {
-        cwd: path.resolve(__dirname, ".."),
-        encoding: "utf8",
-        stdio: "pipe",
-        timeout: 20000
-      });
-    } catch (e) {
-      console.warn(`  Knowledge sync to Linear had issues (non-blocking): ${(e.stderr || e.message || "").slice(0, 120)}`);
-    }
-  }
+if (nextState === "task_breakdown" && ["implementation_in_progress", "implementation_review"].includes(currentState)) {
+  resetImplementationReview(state);
 }
 
 state.current_state = nextState;
+state.delivery = state.delivery || {};
 state.delivery.updated_at = now;
 state.log = state.log || [];
 state.log.push({
@@ -343,7 +80,6 @@ updateSessionMarker(statePath, {
   state: nextState,
   state_updated_at: state.delivery.updated_at
 });
-console.log(`OK: ${currentState} -> ${nextState}`);
 
 appendEvent(statePath, {
   type: "state_transition",
@@ -355,3 +91,120 @@ appendEvent(statePath, {
   severity: "info",
   tags: ["state_transition", currentState, nextState]
 });
+
+console.log(`OK: ${currentState} -> ${nextState}`);
+
+function checklistErrors(candidate, from, to) {
+  const result = [];
+  const taskList = candidate.task_graph && Array.isArray(candidate.task_graph.tasks)
+    ? candidate.task_graph.tasks
+    : [];
+
+  if (to === "knowledge_discovery") {
+    const readiness = candidate.tool_readiness || {};
+    if (!["ready", "partial"].includes(readiness.status)) result.push("tool_readiness.status must be ready or partial");
+    if (!readiness.choices || !readiness.choices.product_tracker) result.push("tool_readiness.choices.product_tracker is required");
+    if (!readiness.choices || !readiness.choices.code_host) result.push("tool_readiness.choices.code_host is required");
+  }
+
+  if (to === "product_review") {
+    requireArtifact(candidate, "product_requirements", result);
+    if (!candidate.knowledge || !Array.isArray(candidate.knowledge.sources) || !candidate.knowledge.sources.length) {
+      result.push("knowledge.sources must list evidence sources");
+    }
+    if (!candidate.knowledge || !Array.isArray(candidate.knowledge.findings) || !candidate.knowledge.findings.length) {
+      result.push("knowledge.findings must contain source-backed findings");
+    }
+  }
+
+  if (from === "product_review" && to === "design_assembly") {
+    requireGate(candidate, "product_review", result);
+  }
+
+  if (to === "system_rules_review") {
+    requireArtifact(candidate, "design_assets", result);
+    requireArtifact(candidate, "system_rules", result);
+  }
+
+  if (from === "system_rules_review" && to === "task_breakdown") {
+    requireGate(candidate, "system_rules_review", result);
+  }
+
+  if (from === "task_breakdown" && to === "implementation_in_progress") {
+    if (!taskList.length) result.push("task_graph.tasks must contain Linear-backed tasks");
+    if (!candidate.task_graph || candidate.task_graph.dependencies_checked !== true) {
+      result.push("task_graph.dependencies_checked must be true");
+    }
+    for (const task of taskList) {
+      requireTaskTemplate(task, result);
+    }
+    const dispatch = candidate.agent_dispatch || {};
+    if (dispatch.mode !== "multi_agent" && taskList.some((task) => ["frontend", "backend"].includes(task.lane))) {
+      result.push("agent_dispatch.mode must be multi_agent for frontend/backend implementation");
+    }
+  }
+
+  if (to === "implementation_review") {
+    const devTasks = taskList.filter((task) => ["frontend_dev", "frontend_test", "backend_dev", "backend_test"].includes(task.role));
+    const unverified = devTasks.filter((task) => !["verified", "waived", "not_applicable"].includes(task.status));
+    if (unverified.length) {
+      result.push(`all frontend/backend tasks must be verified before implementation_review: ${unverified.map((task) => `${task.id}:${task.status}`).join(", ")}`);
+    }
+    if (!candidate.artifacts || !candidate.artifacts.product_requirements || !candidate.artifacts.product_requirements.path) {
+      result.push("product requirements artifact is required for implementation review");
+    }
+  }
+
+  if (from === "implementation_review" && to === "done") {
+    requireGate(candidate, "implementation_review", result);
+  }
+
+  return result;
+}
+
+function requireArtifact(candidate, key, result) {
+  const artifact = candidate.artifacts && candidate.artifacts[key];
+  if (!artifact) {
+    result.push(`artifacts.${key} is missing`);
+    return;
+  }
+  if (!["ready_for_review", "approved", "published"].includes(artifact.status)) {
+    result.push(`artifacts.${key}.status must be ready_for_review, approved, or published`);
+  }
+  if (!artifact.path && !artifact.url) {
+    result.push(`artifacts.${key}.path or url is required`);
+  }
+}
+
+function requireGate(candidate, key, result) {
+  const gate = candidate.gates && candidate.gates[key];
+  if (!gate || gate.status !== "approved") {
+    result.push(`gates.${key}.status must be approved`);
+  }
+  if (!gate || !gate.approver) {
+    result.push(`gates.${key}.approver is required`);
+  }
+  if (!gate || !gate.decided_at) {
+    result.push(`gates.${key}.decided_at is required`);
+  }
+}
+
+function requireTaskTemplate(task, result) {
+  const prefix = task.id || "(unknown task)";
+  if (!task.linear_id) result.push(`${prefix}: linear_id is required`);
+  if (!task.description) result.push(`${prefix}: description is required`);
+  if (!Array.isArray(task.definition_of_done) || !task.definition_of_done.length) result.push(`${prefix}: definition_of_done is required`);
+  if (!Array.isArray(task.verification) || !task.verification.length) result.push(`${prefix}: verification/test plan is required`);
+  if (!Array.isArray(task.expected_changes) || !task.expected_changes.length) result.push(`${prefix}: expected_changes is required`);
+  if (!task.scope || !Array.isArray(task.scope.allowed_paths) || !task.scope.allowed_paths.length) result.push(`${prefix}: scope.allowed_paths is required`);
+}
+
+function resetImplementationReview(candidate) {
+  if (candidate.gates && candidate.gates.implementation_review) {
+    candidate.gates.implementation_review.status = "not_ready";
+    candidate.gates.implementation_review.approver = "";
+    candidate.gates.implementation_review.approval_note = "";
+    candidate.gates.implementation_review.decided_at = "";
+    candidate.gates.implementation_review.evidence = [];
+  }
+}

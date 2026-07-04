@@ -4,13 +4,10 @@
 const fs = require("fs");
 const path = require("path");
 const {
-  states,
-  transitions,
-  taskStatuses,
-  roleNames
+  taskStatuses
 } = require("./lib/state-machine");
 const { execSync } = require("child_process");
-const { appendEvent, appendTokenUsageRow, readCsv } = require("./lib/memory-store");
+const { appendEvent } = require("./lib/memory-store");
 const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy } = require("./lib/policy");
@@ -91,8 +88,17 @@ if (!allowed.includes(nextStatus)) {
 }
 
 const errors = [];
+const leaseRole = requiredLeaseRoleForTransition(task, nextStatus, currentStatus);
+
+if (leaseRole && !hasActiveLease(state, taskId, leaseRole)) {
+  errors.push(`${taskId}: ${nextStatus} requires a recorded ${leaseRole} subagent lease. Run plan-agent-dispatch.js, spawn the requested agent, then record it with record-agent-spawn.js.`);
+}
 
 if (nextStatus === "active") {
+  const loop = task.loop || {};
+  if (currentStatus === "failed" && Number(loop.attempt || 0) >= Number(loop.max_attempts || 3)) {
+    errors.push(`${taskId}: dev/test loop reached ${loop.attempt}/${loop.max_attempts || 3}. Stop and ask the user to intervene before retrying.`);
+  }
   if (Array.isArray(task.depends_on) && task.depends_on.length > 0) {
     const depTaskIds = new Set(task.depends_on);
     for (const t of tasks) {
@@ -113,8 +119,17 @@ if (nextStatus === "active") {
 if (nextStatus === "verified") {
   // === UNIFIED TEST EXECUTION ENFORCEMENT (all roles) ===
   const test = task.test || {};
+  const implementation = task.implementation || {};
   const runDir = path.dirname(statePath);
 
+  if (isDevTask(task)) {
+    if (!Array.isArray(implementation.changed_files) || implementation.changed_files.length === 0) {
+      errors.push(`${taskId}: Cannot transition to verified. implementation.changed_files is empty.`);
+    }
+    if (!Array.isArray(implementation.evidence) || implementation.evidence.length === 0) {
+      errors.push(`${taskId}: Cannot transition to verified. implementation.evidence is empty.`);
+    }
+  }
   if (test.status !== "passed") {
     errors.push(`${taskId}: Cannot transition to verified. You forgot to run tests. Run 'node scripts/submit-task.js' to automate this, or manually run 'scripts/record-test-results.js'.`);
   }
@@ -130,42 +145,10 @@ if (nextStatus === "verified") {
   if (!test.output_file) {
     errors.push(`${taskId}: Cannot transition to verified. You forgot to record test output. Run 'node scripts/submit-task.js' first.`);
   } else {
-    const outputPath = path.resolve(runDir, test.output_file);
+    const outputPath = resolveRunPath(runDir, test.output_file);
     if (!fs.existsSync(outputPath)) {
       errors.push(`${taskId}: Cannot transition to verified. Test output file "${test.output_file}" is missing. Run 'node scripts/submit-task.js' again.`);
     }
-  }
-
-  // === TOKEN USAGE: auto-record estimated tokens if not already recorded ===
-  const tokenCsvPath = path.join(runDir, "token-usage.csv");
-  let tokenRows = [];
-  if (fs.existsSync(tokenCsvPath)) {
-    tokenRows = readCsv(tokenCsvPath).filter(
-      (r) => r.task_id === task.id && Number(r.total_tokens || 0) > 0
-    );
-  }
-  if (tokenRows.length === 0) {
-    const fileCount = Array.isArray(task.implementation && task.implementation.changed_files)
-      ? task.implementation.changed_files.length : 0;
-    const estimatedTokens = Math.max(500, fileCount * 1500);
-    const estimatedCost = (estimatedTokens / 1000000) * 3;
-    appendTokenUsageRow(statePath, {
-      scope: "task",
-      role: task.role,
-      task_id: task.id,
-      input_tokens: Math.round(estimatedTokens * 0.6),
-      output_tokens: Math.round(estimatedTokens * 0.4),
-      total_tokens: estimatedTokens,
-      total_cost_usd: estimatedCost,
-      cost_basis: "estimated",
-      notes: `Auto-recorded at verified transition (${fileCount} file(s), ~${estimatedTokens} tok)`
-    });
-    console.log(`  Token usage: auto-recorded ~${estimatedTokens} tok / $${estimatedCost} cost for ${taskId}`);
-    tokenRows = [{ total_tokens: estimatedTokens, total_cost_usd: estimatedCost }];
-  } else {
-    const totalTokens = tokenRows.reduce((s, r) => s + Number(r.total_tokens || 0), 0);
-    const totalCost = tokenRows.reduce((s, r) => s + Number(r.total_cost_usd || 0), 0);
-    console.log(`  Token usage: ${tokenRows.length} row(s), ${totalTokens} tokens, $${totalCost} cost for ${taskId}`);
   }
 
   // === SCOPE ENFORCEMENT: changed_files must match approved repos ===
@@ -185,62 +168,35 @@ if (nextStatus === "verified") {
     }
   }
 
-  const isDevTask = ["frontend_dev", "backend_dev"].includes(task.role);
-  if (isDevTask) {
+  if (isDevTask(task)) {
     const git = task.git_flow || {};
-    const policy = state.implementation && state.implementation.git_policy
-      ? state.implementation.git_policy
-      : {};
 
+    if (!git.branch_created || !git.feature_branch) {
+      errors.push(`${taskId}: Cannot transition to verified. Git flow branch evidence is missing. Run 'node scripts/submit-task.js'.`);
+    }
     if (!git.local_tests_passed || !git.test_evidence || !git.test_evidence.length) {
       errors.push(`${taskId}: Cannot transition to verified. Git flow 'local_tests_passed' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
     }
     if (!git.pushed || !git.push_evidence || !git.push_evidence.length) {
       errors.push(`${taskId}: Cannot transition to verified. Git flow 'pushed' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
     }
-    if (!["created", "open", "merged"].includes(git.merge_request_status) || !git.merge_request_url) {
-      errors.push(`${taskId}: Cannot transition to verified. Git flow 'merge_request_status' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
+    if (git.merge_request_status !== "merged" || !git.merge_request_url) {
+      errors.push(`${taskId}: Cannot transition to verified. The merge request must be merged before verification. Run 'node scripts/submit-task.js' or record merged MR evidence.`);
     }
-    if (git.auto_merge) {
-      if (!git.merge_checks_passed || !git.merge_check_evidence || !git.merge_check_evidence.length) {
-        errors.push(`${taskId}: auto-merge requires merge_checks_passed with evidence before verified`);
-      }
-      if (!git.merged || git.merge_request_status !== "merged") {
-        errors.push(`${taskId}: auto-merge requires merge completed before verified`);
-      }
+    if (git.merge_request_comment_status !== "passed" || !git.merge_request_comment_url || !(git.merge_request_comment_evidence || []).length) {
+      errors.push(`${taskId}: Cannot transition to verified. MR status comment URL/evidence with status 'passed' is missing. Run 'node scripts/submit-task.js' after tests.`);
     }
-
-    // Attempt remote git lifecycle enforcement if applicable
-    const enforceScript = path.join(__dirname, "enforce-git-lifecycle.js");
-    if (fs.existsSync(enforceScript) && !process.env.GIT_LIFECYCLE_SKIP) {
-      const repoHint = policy.repo_path || "";
-      const repoArg = repoHint ? ` --repo-path "${repoHint}"` : "";
-      try {
-        execSync(`node "${enforceScript}" "${statePath}" "${taskId}"${repoArg}`, {
-          timeout: 10000,
-          encoding: "utf8",
-          stdio: ["pipe", "pipe", "pipe"]
-        });
-        console.log(`  Git lifecycle enforcement: passed for ${taskId}`);
-      } catch (err) {
-        const output = err.stdout || "";
-        const stderr = err.stderr || "";
-        if (output.includes("not a git repository") || output.includes("skipping remote checks")) {
-          console.log(`  Git lifecycle enforcement: skipped for ${taskId} (no git repo)`);
-        } else {
-          const details = output.includes("FAIL") ? output.split("\n").filter(l => l.includes("Failures")).join("; ") : stderr.trim();
-          errors.push(`${taskId}: git lifecycle enforcement failed — ${details || "run scripts/enforce-git-lifecycle.js separately for details"}`);
-        }
-      }
+    if (git.merged !== true || !git.merge_commit || !(git.merge_evidence || []).length) {
+      errors.push(`${taskId}: Cannot transition to verified. Merged MR evidence is missing. Required: git_flow.merged=true, merge_commit, and merge_evidence.`);
     }
   }
 
   // === DOCKER COMPOSE INTEGRATION VERIFICATION ===
-  if (errors.length === 0 && !process.env.SKIP_DOCKER_VERIFY) {
+  if (errors.length === 0) {
     const verifyScript = path.join(__dirname, "verify-integration.js");
     if (fs.existsSync(verifyScript)) {
       try {
-        execSync(`node "${verifyScript}" "${statePath}"`, {
+        execSync(`"${process.execPath}" "${verifyScript}" "${statePath}"`, {
           cwd: harnessRoot, encoding: "utf8", stdio: "pipe", timeout: 120000
         });
         console.log(`  Integration verification (docker compose): passed for ${taskId}`);
@@ -279,6 +235,9 @@ if (nextStatus === "failed") {
   task.loop.status = "failed";
   task.loop.attempt = (task.loop.attempt || 0) + 1;
   task.loop.last_failure = note || "Unknown failure";
+  if (task.loop.attempt >= (task.loop.max_attempts || 3)) {
+    console.warn(`Loop cap reached for ${taskId}: ${task.loop.attempt}/${task.loop.max_attempts || 3}. User intervention required before retry.`);
+  }
 } else if (nextStatus === "verified") {
   task.loop.status = "completed";
   task.loop.attempt = (task.loop.attempt || 0) + 1;
@@ -313,6 +272,8 @@ const laneStateKey = laneStateForTask(task, tasks);
 if (laneStateKey) {
   state.current_state = laneStateKey;
 }
+updateLeasesForTransition(state, taskId, leaseRole, nextStatus);
+updateSpawnRequestsForTransition(state, taskId, leaseRole, nextStatus);
 
 state.delivery.updated_at = now;
 state.log = state.log || [];
@@ -367,60 +328,91 @@ if (task.linear_id && linearCfg.api_key) {
 }
 
 function laneStateForTask(task, allTasks) {
-  const role = task.role;
-  if (["frontend_dev", "frontend_test"].includes(role)) {
-    const frontendTasks = allTasks.filter(
-      (t) => ["frontend_dev", "frontend_test"].includes(t.role)
-    );
-    const allVerified = frontendTasks.every(
-      (t) => t.status === "verified" || t.status === "not_applicable" || t.status === "waived"
-    );
-    if (task.status === "testing" || (task.status === "verified" && !allVerified)) {
-      return "frontend_test";
-    }
-    if (task.status === "verified" && allVerified) {
-      const backendTasks = allTasks.filter(
-        (t) => ["backend_dev", "backend_test"].includes(t.role)
-      );
-      const allBackendVerified = backendTasks.length === 0 || backendTasks.every(
-        (t) => t.status === "verified" || t.status === "not_applicable" || t.status === "waived"
-      );
-      if (allBackendVerified) {
-        return "integration_verification";
-      }
-      return "frontend_verified";
-    }
-    if (task.status === "active" || task.status === "implemented") {
-      return "frontend_dev";
-    }
-  }
-
-  if (["backend_dev", "backend_test"].includes(role)) {
-    const backendTasks = allTasks.filter(
-      (t) => ["backend_dev", "backend_test"].includes(t.role)
-    );
-    const allVerified = backendTasks.every(
-      (t) => t.status === "verified" || t.status === "not_applicable" || t.status === "waived"
-    );
-    if (task.status === "testing" || (task.status === "verified" && !allVerified)) {
-      return "backend_test";
-    }
-    if (task.status === "verified" && allVerified) {
-      const frontendTasks = allTasks.filter(
-        (t) => ["frontend_dev", "frontend_test"].includes(t.role)
-      );
-      const allFrontendVerified = frontendTasks.length === 0 || frontendTasks.every(
-        (t) => t.status === "verified" || t.status === "not_applicable" || t.status === "waived"
-      );
-      if (allFrontendVerified) {
-        return "integration_verification";
-      }
-      return "backend_verified";
-    }
-    if (task.status === "active" || task.status === "implemented") {
-      return "backend_dev";
-    }
-  }
-
   return "";
+}
+
+function isDevTask(task) {
+  return task.role === "frontend_dev" || task.role === "backend_dev";
+}
+
+function testRoleForDevRole(role) {
+  if (role === "frontend_dev") return "frontend_test";
+  if (role === "backend_dev") return "backend_test";
+  return "";
+}
+
+function requiredLeaseRoleForTransition(task, nextStatus, currentStatus) {
+  if (!["active", "implemented", "testing", "verified", "failed"].includes(nextStatus)) {
+    return "";
+  }
+  if (isDevTask(task) && nextStatus === "failed" && currentStatus === "testing") {
+    return testRoleForDevRole(task.role);
+  }
+  if (isDevTask(task) && (nextStatus === "testing" || nextStatus === "verified")) {
+    return testRoleForDevRole(task.role);
+  }
+  return task.role || "";
+}
+
+function hasActiveLease(state, taskId, role) {
+  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
+    ? state.agent_dispatch.leases
+    : [];
+  return leases.some((lease) =>
+    lease &&
+    lease.task_id === taskId &&
+    lease.role === role &&
+    lease.agent_id &&
+    ["leased", "active"].includes(lease.status || "leased")
+  );
+}
+
+function updateLeasesForTransition(state, taskId, role, nextStatus) {
+  if (!role || !state.agent_dispatch || !Array.isArray(state.agent_dispatch.leases)) {
+    return;
+  }
+  const lease = state.agent_dispatch.leases.find((item) =>
+    item &&
+    item.task_id === taskId &&
+    item.role === role &&
+    ["leased", "active"].includes(item.status || "leased")
+  );
+  if (!lease) return;
+  if (nextStatus === "active" || nextStatus === "testing") {
+    lease.status = "active";
+  }
+  if (nextStatus === "implemented" || nextStatus === "verified" || nextStatus === "failed") {
+    lease.status = "completed";
+    lease.completed_at = new Date().toISOString();
+  }
+}
+
+function updateSpawnRequestsForTransition(state, taskId, role, nextStatus) {
+  if (!role || !state.agent_dispatch || !Array.isArray(state.agent_dispatch.spawn_requests)) {
+    return;
+  }
+  const shouldComplete = nextStatus === "implemented" || nextStatus === "verified" || nextStatus === "failed";
+  const shouldActivate = nextStatus === "active" || nextStatus === "testing";
+  for (const request of state.agent_dispatch.spawn_requests) {
+    if (!request || request.role !== role || !(request.task_ids || []).includes(taskId)) {
+      continue;
+    }
+    if (shouldActivate && ["planned", "spawned"].includes(request.status)) {
+      request.status = "active";
+      request.updated_at = new Date().toISOString();
+    }
+    if (shouldComplete && ["planned", "spawned", "active"].includes(request.status)) {
+      request.status = "completed";
+      request.updated_at = new Date().toISOString();
+    }
+  }
+}
+
+function resolveRunPath(runDir, value) {
+  if (path.isAbsolute(value)) return value;
+  const normalized = String(value).replace(/\\/g, "/");
+  if (normalized.startsWith("runs/")) {
+    return path.resolve(harnessRoot, normalized);
+  }
+  return path.resolve(runDir, value);
 }

@@ -5,460 +5,414 @@ const path = require("path");
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { execSync } = require("node:child_process");
+const { canTransition } = require("../scripts/lib/state-machine");
 
 const ROOT = path.resolve(__dirname, "..");
-const SCRIPTS = path.join(ROOT, "scripts");
 const TMP = path.join(ROOT, ".test-tmp");
+const SCRIPTS = path.join(ROOT, "scripts");
 
-function runScript(script, args = [], options = {}) {
-  const cmd = `"${process.execPath}" "${path.join(SCRIPTS, script)}" ${args.map(a => `"${a}"`).join(" ")}`;
-    const execOptions = { cwd: ROOT, encoding: "utf8", env: { ...process.env, GIT_LIFECYCLE_SKIP: "1", SKIP_CONTEXT_CHECK: "1", SKIP_DOCKER_VERIFY: "1", LINEAR_API_KEY: "lin_test_12345678901234567890", LINEAR_TEAM_ID: "team-test" }, ...options };
+function runScript(script, args = []) {
+  const cmd = `"${process.execPath}" "${path.join(SCRIPTS, script)}" ${args.map((arg) => `"${arg}"`).join(" ")}`;
   try {
-    const stdout = execSync(cmd, execOptions);
-    return { stdout: stdout.trim(), stderr: "", exitCode: 0 };
-  } catch (e) {
-    return { stdout: e.stdout.trim(), stderr: e.stderr.trim(), exitCode: e.status };
+    const stdout = execSync(cmd, {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SKIP_CONTEXT_CHECK: "1",
+        SKIP_INTEGRATION_VERIFY: "1",
+        GIT_LIFECYCLE_SKIP: "1",
+        AGENT_SPEC_OPS_ALLOW_SKIP_PR_COMMENT: "1",
+        LINEAR_API_KEY: "lin_test_12345678901234567890",
+        LINEAR_TEAM_ID: "team-test"
+      }
+    });
+    return { exitCode: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      exitCode: error.status || 1,
+      stdout: error.stdout || "",
+      stderr: error.stderr || ""
+    };
   }
+}
+
+function statePath() {
+  return path.join(TMP, "workflow-state.json");
 }
 
 function loadState() {
-  return JSON.parse(fs.readFileSync(path.join(TMP, "workflow-state.json"), "utf8"));
+  return JSON.parse(fs.readFileSync(statePath(), "utf8"));
 }
 
 function writeState(state) {
-  fs.writeFileSync(path.join(TMP, "workflow-state.json"), JSON.stringify(state, null, 2) + "\n");
+  fs.mkdirSync(TMP, { recursive: true });
+  fs.writeFileSync(statePath(), JSON.stringify(state, null, 2) + "\n");
+}
+
+function addLease(state, taskId, role, agentId = `agent-${taskId}-${role}`) {
+  state.agent_dispatch.leases = state.agent_dispatch.leases || [];
+  state.agent_dispatch.leases.push({
+    task_id: taskId,
+    role,
+    agent_id: agentId,
+    status: "leased",
+    started_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 60000).toISOString()
+  });
+  state.agent_dispatch.spawn_requests = state.agent_dispatch.spawn_requests || [];
+  state.agent_dispatch.spawn_requests.push({
+    id: `spawn-${taskId}-${role}`,
+    role,
+    lane: role.startsWith("frontend") ? "frontend" : "backend",
+    task_ids: [taskId],
+    status: "spawned",
+    agent_id: agentId,
+    prompt: "test",
+    write_scope: ["frontend/"],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    blockers: []
+  });
 }
 
 function baseState() {
-  const state = JSON.parse(
-    fs.readFileSync(path.join(ROOT, "templates", "workflow-state.json"), "utf8")
-  );
-  state.current_state = "implementation_in_progress";
-  state.delivery = state.delivery || {};
+  const state = JSON.parse(fs.readFileSync(path.join(ROOT, "templates", "workflow-state.json"), "utf8"));
+  const now = new Date().toISOString();
   state.delivery.id = "TEST-001";
-  state.delivery.title = "Test";
-  state.delivery.created_at = new Date().toISOString();
-  state.delivery.updated_at = new Date().toISOString();
-  state.log = [];
-  state.memory = state.memory || {};
-  state.memory.events_path = "events.ndjson";
-  state.memory.local_tasks_path = "tasks.json";
-  state.memory.evals_csv_path = "evals.csv";
-  state.memory.remarks_csv_path = "remarks.csv";
-  state.memory.token_usage_csv_path = "token-usage.csv";
-  state.memory.knowledge_dirs = ["knowledge/candidates", "knowledge/promoted"];
-  state.memory.event_count = 0;
+  state.delivery.title = "Compact harness test";
+  state.delivery.created_at = now;
+  state.delivery.updated_at = now;
+  state.tool_readiness.status = "ready";
+  state.tool_readiness.choices = { product_tracker: "linear", code_host: "github" };
+  state.knowledge.sources = [{ id: "src-1", kind: "other", title: "brief", url: "", path: "brief.md", authority: "authoritative", checked_at: now, freshness: "current", confidence: "high" }];
+  state.knowledge.findings = [{ id: "f-1", bucket: "product_knowledge", type: "requirement", claim: "User needs compact harness", confidence: "high", sources: ["src-1"], used_by: [] }];
+  state.artifacts.product_requirements = artifact("runs/TEST-001/product-requirements.md");
+  state.artifacts.design_assets = artifact("runs/TEST-001/design-assets/");
+  state.artifacts.system_rules = artifact("runs/TEST-001/system-rules.md");
+  state.gates.product_review = approvedGate(now);
+  state.gates.system_rules_review = approvedGate(now);
+  state.gates.implementation_review = approvedGate(now);
+  state.task_graph.dependencies_checked = true;
+  state.task_graph.status = "approved";
+  state.agent_dispatch.mode = "multi_agent";
+  state.agent_dispatch.parallel_allowed = true;
+  state.agent_dispatch.auto_spawn = true;
   state.memory.local_task_provider = {
     enabled: false,
     mode: "external",
-    reason: "Test fixture uses Linear as task system of record.",
+    reason: "Linear is required",
     external_provider: "linear",
     sync_status: "synced",
-    last_synced_at: new Date().toISOString(),
-    path: "tasks.json"
+    last_synced_at: now,
+    path: ""
   };
-  state.task_graph = state.task_graph || {};
-  state.task_graph.tasks = [];
-  state.roles = state.roles || {};
-  for (const role of ["product_manager", "project_manager", "frontend_dev", "frontend_test", "backend_dev", "backend_test", "orchestrator"]) {
-    state.roles[role] = state.roles[role] || { status: "not_started", current_task_id: "", artifacts: [], evidence: [], blockers: [] };
-  }
-  state.implementation = state.implementation || {};
-  state.implementation.git_policy = state.implementation.git_policy || {
-    base_branch: "main",
-    target_branch: "main",
-    push_after_tests_pass: true,
-    merge_request_required: true,
-    auto_merge_default: true,
-    auto_merge_requires_checks: true,
-    auto_merge_disabled_reason: "",
-    evidence: []
-  };
-  state.loops = state.loops || {};
-  for (const loop of ["product", "planning", "frontend_dev_test", "backend_dev_test", "integration", "knowledge_improvement"]) {
-    state.loops[loop] = state.loops[loop] || { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] };
-  }
-  state.tool_readiness = state.tool_readiness || {};
-  state.tool_readiness.status = "ready";
-  state.tool_readiness.choices = { product_tracker: "linear", code_host: "github" };
-  state.gates = state.gates || {};
-  for (const gate of ["tool_readiness_review", "product_review", "delivery_plan_review"]) {
-    state.gates[gate] = { status: "approved", approver: "test", approval_note: "test setup", decided_at: new Date().toISOString(), evidence: [] };
-  }
   return state;
 }
 
-function makeFeTask(id, deps = []) {
+function artifact(pathValue) {
+  return { status: "ready_for_review", path: pathValue, url: "", content_hash: "", evidence: [pathValue] };
+}
+
+function approvedGate(now) {
+  return { status: "approved", approver: "human", approval_note: "approved", decided_at: now, evidence: ["test"] };
+}
+
+function devTask(id, role, lane) {
   return {
     id,
     linear_id: `lin-${id}`,
-    title: `FE task ${id}`,
-    role: "frontend_dev",
+    title: `${id} task`,
+    role,
+    lane,
+    depends_on: [],
     status: "planned",
-    depends_on: deps,
-    source_requirements: [],
-    knowledge_refs: [],
-    description: "Test frontend task",
-    expected_changes: [],
-    scope: { allowed_paths: ["test/"], allowed_repos: ["test"], allowed_services: ["frontend"], contract_refs: [] },
-    definition_of_done: ["works"],
+    source_requirements: ["REQ-1"],
+    knowledge_refs: ["f-1"],
+    description: "Do the work",
+    expected_changes: [`${lane}/`],
+    scope: { allowed_paths: [`${lane}/`], allowed_repos: ["project"], allowed_services: [lane], contract_refs: [] },
+    definition_of_done: ["done"],
     verification: ["tests pass"],
+    implementation: { changed_files: [`project/${lane}/file.ts`], evidence: ["implemented"], deviations: [] },
+    test: { status: "passed", last_run_at: new Date().toISOString(), output_file: "test-output/test.log", cases: ["case"], commands: ["npm test"], evidence: ["passed"], failures: [] },
     git_flow: {
-      base_branch: "main", target_branch: "main", feature_branch: `feat/${id}`,
-      branch_created: true, branch_evidence: ["created"],
-      local_tests_passed: true, test_evidence: ["tests ok"],
-      pushed: true, push_evidence: ["pushed"],
-      merge_request_status: "merged", merge_request_url: `https://github.com/test/pull/${id}`,
-      merge_request_evidence: ["PR created"],
-      auto_merge: true, auto_merge_disabled_reason: "",
-      merge_checks_passed: true, merge_check_evidence: ["checks passed"],
-      merged: true, merge_commit: "abc123",
+      base_branch: "main",
+      target_branch: "main",
+      feature_branch: `delivery/TEST-001/${id}`,
+      branch_created: true,
+      branch_evidence: ["branch"],
+      local_tests_passed: true,
+      test_evidence: ["tests"],
+      pushed: true,
+      push_evidence: ["push"],
+      merge_request_status: "merged",
+      merge_request_url: "https://github.com/test/repo/pull/1",
+      merge_request_evidence: ["mr"],
+      merge_request_comment_status: "passed",
+      merge_request_comment_url: "https://github.com/test/repo/pull/1#issuecomment-1",
+      merge_request_comment_evidence: ["MR status comment posted"],
+      auto_merge: true,
+      auto_merge_disabled_reason: "",
+      merge_checks_passed: true,
+      merge_check_evidence: ["checks"],
+      merged: true,
+      merge_commit: "abc123",
       merge_evidence: ["merged"],
       blockers: []
     },
-    implementation: { changed_files: ["test/file.ts"], evidence: ["implemented"], deviations: [] },
-    test: { status: "passed", last_run_at: new Date().toISOString(), output_file: "test-output/test.log", cases: ["test works"], commands: ["npm test"], evidence: ["all tests pass"], failures: [] },
     loop: { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] }
   };
 }
 
-function makeBeTask(id, deps = []) {
-  return {
-    id,
-    linear_id: `lin-${id}`,
-    title: `BE task ${id}`,
-    role: "backend_dev",
-    status: "planned",
-    depends_on: deps,
-    source_requirements: [],
-    knowledge_refs: [],
-    description: "Test backend task",
-    expected_changes: [],
-    scope: { allowed_paths: ["test/"], allowed_repos: ["test"], allowed_services: ["backend"], contract_refs: [] },
-    definition_of_done: ["works"],
-    verification: ["tests pass"],
-    git_flow: {
-      base_branch: "main", target_branch: "main", feature_branch: `feat/${id}`,
-      branch_created: true, branch_evidence: ["created"],
-      local_tests_passed: true, test_evidence: ["tests ok"],
-      pushed: true, push_evidence: ["pushed"],
-      merge_request_status: "merged", merge_request_url: `https://github.com/test/pull/${id}`,
-      merge_request_evidence: ["PR created"],
-      auto_merge: true, auto_merge_disabled_reason: "",
-      merge_checks_passed: true, merge_check_evidence: ["checks passed"],
-      merged: true, merge_commit: "abc123",
-      merge_evidence: ["merged"],
-      blockers: []
-    },
-    implementation: { changed_files: ["test/file.ts"], evidence: ["implemented"], deviations: [] },
-    test: { status: "passed", last_run_at: new Date().toISOString(), output_file: "test-output/test.log", cases: ["test works"], commands: ["npm test"], evidence: ["all tests pass"], failures: [] },
-    loop: { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] }
-  };
-}
-
-describe("transition-task.js", () => {
-  before(() => {
-    fs.mkdirSync(TMP, { recursive: true });
-    fs.mkdirSync(path.join(TMP, "test-output"), { recursive: true });
-    fs.writeFileSync(path.join(TMP, "test-output", "test.log"), "All tests passed\n");
-  });
-
-  after(() => {
-    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
-  });
-
-  it("rejects unknown task", () => {
-    const state = baseState();
-    writeState(state);
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "NONEXIST", "verified"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("Task not found"));
-  });
-
-  it("rejects invalid task status", () => {
-    const state = baseState();
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "invalid_status"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("Invalid task status"));
-  });
-
-  it("rejects illegal task transition: planned -> verified (skip states)", () => {
-    const state = baseState();
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "verified"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("Illegal task transition"));
-  });
-
-  it("accepts planned -> active", () => {
-    const state = baseState();
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "active"]);
-    assert.equal(result.exitCode, 0);
-    const updated = loadState();
-    const task = updated.task_graph.tasks.find(t => t.id === "FE-001");
-    assert.equal(task.status, "active");
-    assert.equal(task.loop.status, "in_progress");
-    assert.equal(updated.roles.frontend_dev.status, "in_progress");
-  });
-
-  it("rejects active when dependency is not verified", () => {
-    const state = baseState();
-    state.task_graph.tasks = [
-      makeFeTask("FE-001"),
-      makeFeTask("FE-002", ["FE-001"])
-    ];
-    writeState(state);
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-002", "active"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("depends on") && result.stderr.includes("not verified"));
-  });
-
-  it("rejects WIP=1 violation: two active tasks in same lane", () => {
-    const state = baseState();
-    const fe1 = makeFeTask("FE-001");
-    fe1.status = "active";
-    state.task_graph.tasks = [
-      fe1,
-      makeFeTask("FE-002")
-    ];
-    writeState(state);
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-002", "active"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("WIP=1 violation"));
-  });
-
-  it("advances through full lifecycle: planned -> active -> implemented -> testing -> verified", () => {
-    const state = baseState();
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-
-    let result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "active"]);
-    assert.equal(result.exitCode, 0, "planned -> active");
-
-    result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "implemented"]);
-    assert.equal(result.exitCode, 0, "active -> implemented");
-
-    result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "testing"]);
-    assert.equal(result.exitCode, 0, "implemented -> testing");
-
-    result = runScript("record-token-usage.js", [
-      path.join(TMP, "workflow-state.json"),
-      "--scope", "task",
-      "--task", "FE-001",
-      "--input-tokens", "100",
-      "--output-tokens", "50",
-      "--total-cost-usd", "0.002",
-      "--cost-basis", "estimated"
-    ]);
-    assert.equal(result.exitCode, 0, "record token usage");
-
-    result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "verified"]);
-    assert.equal(result.exitCode, 0, "testing -> verified");
-
-    const updated = loadState();
-    const task = updated.task_graph.tasks.find(t => t.id === "FE-001");
-    assert.equal(task.status, "verified");
-    assert.equal(task.loop.status, "completed");
-    assert.equal(updated.roles.frontend_dev.status, "complete");
-  });
-
-  it("blocks verified when git_flow has no PR", () => {
-    const state = baseState();
-    const task = makeFeTask("FE-001");
-    task.git_flow.merge_request_status = "not_started";
-    task.git_flow.merge_request_url = "";
-    task.status = "testing";
-    state.task_graph.tasks = [task];
-    writeState(state);
-
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "verified"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("merge_request"));
-  });
-
-  it("blocks verified when not pushed", () => {
-    const state = baseState();
-    const task = makeFeTask("FE-001");
-    task.git_flow.pushed = false;
-    task.git_flow.push_evidence = [];
-    task.status = "testing";
-    state.task_graph.tasks = [task];
-    writeState(state);
-
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "verified"]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("pushed"));
-  });
-
-  it("allows task to be marked failed", () => {
-    const state = baseState();
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-
-    let result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "active"]);
-    assert.equal(result.exitCode, 0);
-
-    result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "failed", "Test failure"]);
-    assert.equal(result.exitCode, 0);
-
-    const updated = loadState();
-    const task = updated.task_graph.tasks.find(t => t.id === "FE-001");
-    assert.equal(task.status, "failed");
-    assert.equal(task.loop.status, "failed");
-    assert.equal(task.loop.last_failure, "Test failure");
-    assert.equal(task.loop.attempt, 2);
-  });
-
-  it("allows retry from failed -> active", () => {
-    const state = baseState();
-    const task = makeFeTask("FE-001");
-    task.status = "failed";
-    task.loop = { status: "failed", attempt: 1, max_attempts: 3, last_failure: "bug", history: [] };
-    state.task_graph.tasks = [task];
-    writeState(state);
-
-    const result = runScript("transition-task.js", [path.join(TMP, "workflow-state.json"), "FE-001", "active"]);
-    assert.equal(result.exitCode, 0);
-
-    const updated = loadState();
-    assert.equal(updated.task_graph.tasks[0].status, "active");
+describe("compact state machine", () => {
+  it("uses the compact top-level flow and routes rework to task breakdown", () => {
+    assert.equal(canTransition("product_requirements", "product_review"), true);
+    assert.equal(canTransition("product_requirements", "design_assembly"), false);
+    assert.equal(canTransition("implementation_review", "task_breakdown"), true);
+    assert.equal(canTransition("implementation_review", "done"), true);
+    assert.equal(canTransition("implementation_review", "knowledge_discovery"), false);
   });
 });
 
 describe("transition.js", () => {
   before(() => {
-    fs.mkdirSync(TMP, { recursive: true });
-    const state = baseState();
-    state.current_state = "implementation_in_progress";
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
+    fs.mkdirSync(path.join(TMP, "test-output"), { recursive: true });
+    fs.writeFileSync(path.join(TMP, "test-output", "test.log"), "ok\n");
   });
 
   after(() => {
-    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
+    fs.rmSync(TMP, { recursive: true, force: true });
   });
 
-  it("rejects direct jump to integration_verification with unverified tasks", () => {
-    const result = runScript("transition.js", [
-      path.join(TMP, "workflow-state.json"),
-      "integration_verification"
-    ]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("unverified tasks"));
+  it("rejects implementation without Linear task ids", () => {
+    const state = baseState();
+    state.current_state = "task_breakdown";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.linear_id = "";
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("transition.js", [statePath(), "implementation_in_progress", "start"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /linear_id/);
   });
 
-  it("rejects transition to invalid state", () => {
-    const result = runScript("transition.js", [
-      path.join(TMP, "workflow-state.json"),
-      "implementation_complete"
-    ]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("Invalid next state"));
+  it("allows task breakdown to implementation when checklist passes", () => {
+    const state = baseState();
+    state.current_state = "task_breakdown";
+    state.task_graph.tasks = [
+      devTask("FE-001", "frontend_dev", "frontend"),
+      devTask("BE-001", "backend_dev", "backend")
+    ];
+    writeState(state);
+
+    const result = runScript("transition.js", [statePath(), "implementation_in_progress", "start"]);
+    assert.equal(result.exitCode, 0);
+    assert.equal(loadState().current_state, "implementation_in_progress");
+  });
+
+  it("allows implementation review only after frontend/backend tasks are verified", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const fe = devTask("FE-001", "frontend_dev", "frontend");
+    const be = devTask("BE-001", "backend_dev", "backend");
+    fe.status = "verified";
+    be.status = "verified";
+    state.task_graph.tasks = [fe, be];
+    writeState(state);
+
+    const result = runScript("transition.js", [statePath(), "implementation_review", "ready"]);
+    assert.equal(result.exitCode, 0);
+    assert.equal(loadState().current_state, "implementation_review");
+  });
+});
+
+describe("transition-task.js", () => {
+  before(() => {
+    fs.mkdirSync(path.join(TMP, "test-output"), { recursive: true });
+    fs.writeFileSync(path.join(TMP, "test-output", "test.log"), "ok\n");
+  });
+
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("keeps top-level state in implementation while task moves", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    addLease(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "active", "start"]);
+    assert.equal(result.exitCode, 0);
+    const updated = loadState();
+    assert.equal(updated.current_state, "implementation_in_progress");
+    assert.equal(updated.task_graph.tasks[0].status, "active");
+  });
+
+  it("rejects task execution without a recorded role lease", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "active", "start"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /frontend_dev subagent lease/);
+  });
+
+  it("rejects verified when the task MR is not merged", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.git_flow.merge_request_status = "open";
+    task.git_flow.merged = false;
+    task.git_flow.merge_commit = "";
+    task.git_flow.merge_evidence = [];
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /must be merged/);
+  });
+
+  it("allows verified only after merged MR evidence exists", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
+    assert.equal(result.exitCode, 0);
+    assert.equal(loadState().task_graph.tasks[0].status, "verified");
+  });
+
+  it("blocks retry after dev/test loop reaches three attempts", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "failed";
+    task.loop = { status: "failed", attempt: 3, max_attempts: 3, last_failure: "still failing", history: [] };
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "active", "retry"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /user to intervene/);
   });
 });
 
 describe("validate-state.js", () => {
-  before(() => {
-    fs.mkdirSync(TMP, { recursive: true });
-  });
-
   after(() => {
-    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
+    fs.rmSync(TMP, { recursive: true, force: true });
   });
 
-  it("rejects state with invalid top-level state name", () => {
+  it("rejects verified dev tasks without merged MR evidence", () => {
     const state = baseState();
-    state.current_state = "implementation_complete";
-    writeState(state);
-    const result = runScript("validate-state.js", [path.join(TMP, "workflow-state.json")]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes('"implementation_complete" is not a valid state'));
-  });
-
-  it("rejects integration_verification with unverified frontend tasks", () => {
-    const state = baseState();
-    state.current_state = "integration_verification";
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-    const result = runScript("validate-state.js", [path.join(TMP, "workflow-state.json")]);
-    assert.ok(result.exitCode !== 0);
-    assert.ok(result.stderr.includes("integration_verification requires all tasks verified"))
-      || assert.ok(result.stderr.includes("Unverified"));
-  });
-
-  it("passes when all tasks are verified in integration_verification", () => {
-    const state = baseState();
-    state.current_state = "integration_verification";
-    const task = makeFeTask("FE-001");
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
     task.status = "verified";
+    task.git_flow.merge_request_status = "open";
+    task.git_flow.merged = false;
+    task.git_flow.merge_commit = "";
+    task.git_flow.merge_evidence = [];
     state.task_graph.tasks = [task];
     writeState(state);
-    const result = runScript("validate-state.js", [path.join(TMP, "workflow-state.json")]);
-    assert.equal(result.exitCode, 0);
-  });
 
-  it("passes for valid frontend lane state", () => {
-    const state = baseState();
-    state.current_state = "frontend_dev";
-    state.task_graph.tasks = [makeFeTask("FE-001")];
-    writeState(state);
-    const result = runScript("validate-state.js", [path.join(TMP, "workflow-state.json")]);
-    assert.equal(result.exitCode, 0);
+    const result = runScript("validate-state.js", [statePath()]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /verified requires merged MR status/);
   });
 });
 
-describe("record-event.js", () => {
+describe("check-write-scope.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("rejects orchestrator writes into project task scope", () => {
+    const state = baseState();
+    state.workspace_root = ".test-tmp";
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    task.scope.allowed_paths = ["frontend/**"];
+    state.task_graph.tasks = [task];
+    fs.mkdirSync(path.join(TMP, "project", "frontend"), { recursive: true });
+    writeState(state);
+
+    const target = path.join(TMP, "project", "frontend", "file.ts");
+    const result = runScript("check-write-scope.js", [statePath(), target, "orchestrator"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /not an active task for role orchestrator/);
+  });
+
+  it("allows the matching active dev role into project task scope", () => {
+    const state = baseState();
+    state.workspace_root = ".test-tmp";
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    task.scope.allowed_paths = ["frontend/**"];
+    state.task_graph.tasks = [task];
+    fs.mkdirSync(path.join(TMP, "project", "frontend"), { recursive: true });
+    writeState(state);
+
+    const target = path.join(TMP, "project", "frontend", "file.ts");
+    const result = runScript("check-write-scope.js", [statePath(), target, "frontend_dev"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /active scope/);
+  });
+});
+
+describe("record-test-results.js", () => {
   before(() => {
-    fs.mkdirSync(TMP, { recursive: true });
+    fs.mkdirSync(path.join(TMP, "test-output"), { recursive: true });
   });
 
   after(() => {
-    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
+    fs.rmSync(TMP, { recursive: true, force: true });
   });
 
-  it("applies --set updates to workflow-state.json", () => {
+  it("rejects test results for planned tasks", () => {
     const state = baseState();
-    state.gates.product_review.status = "pending";
-    state.gates.product_review.approver = "";
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    addLease(state, "FE-001", "frontend_test");
     writeState(state);
 
-    const result = runScript("record-event.js", [
-      path.join(TMP, "workflow-state.json"),
-      "--type", "config_update",
-      "--summary", "Approve product gate",
-      "--set", "gates.product_review.status=approved",
-      "--set", "gates.product_review.approver=tester"
-    ]);
+    const result = runScript("record-test-results.js", [statePath(), "--task", "FE-001", "--status", "passed", "--role", "frontend_test", "--command", "npm test", "--output", "ok"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /cannot record test results while task status is planned/);
+  });
+});
 
-    assert.equal(result.exitCode, 0);
-    assert.ok(result.stdout.includes("Applied 2 state update"));
-    const updated = loadState();
-    assert.equal(updated.gates.product_review.status, "approved");
-    assert.equal(updated.gates.product_review.approver, "tester");
+describe("plan-agent-dispatch.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
   });
 
-  it("parses --set JSON, boolean, and numeric values", () => {
+  it("plans a test-agent request after a dev task is implemented", () => {
     const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "implemented";
+    state.task_graph.tasks = [task];
     writeState(state);
 
-    const result = runScript("record-event.js", [
-      path.join(TMP, "workflow-state.json"),
-      "--type", "config_update",
-      "--summary", "Update structured state",
-      "--set", "artifacts.demo.evidence=[1,2]",
-      "--set", "artifacts.demo.ready=true",
-      "--set", "artifacts.demo.count=2"
-    ]);
-
+    const result = runScript("plan-agent-dispatch.js", [statePath(), "--enable-auto"]);
     assert.equal(result.exitCode, 0);
     const updated = loadState();
-    assert.deepEqual(updated.artifacts.demo.evidence, [1, 2]);
-    assert.equal(updated.artifacts.demo.ready, true);
-    assert.equal(updated.artifacts.demo.count, 2);
+    const request = updated.agent_dispatch.spawn_requests.find((item) => item.task_ids.includes("FE-001"));
+    assert.equal(request.role, "frontend_test");
+    assert.match(request.prompt, /record-test-results/);
   });
 });

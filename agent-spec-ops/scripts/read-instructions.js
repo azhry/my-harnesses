@@ -3,112 +3,134 @@
 
 const fs = require("fs");
 const path = require("path");
+const { transitions } = require("./lib/state-machine");
 
 const args = parseArgs(process.argv.slice(2));
-
 if (!args.stateFile) {
-  console.error("Usage: node scripts/read-instructions.js runs/<DELIVERY_ID>/workflow-state.json --role <ROLE> [--full]");
+  console.error("Usage: node scripts/read-instructions.js runs/<DELIVERY_ID>/workflow-state.json [--role ROLE]");
   process.exit(1);
 }
 
-const root = path.resolve(__dirname, "..");
 const state = JSON.parse(fs.readFileSync(path.resolve(args.stateFile), "utf8"));
+const current = state.current_state || "unknown";
+const allowed = transitions[current] || [];
 const role = args.role || inferRole(state);
 
-console.log("\n============================================================");
-console.log("  COMPACT INSTRUCTIONS");
-console.log("============================================================\n");
-console.log(fs.readFileSync(path.join(root, "docs", "agent-boot.md"), "utf8"));
-
-console.log("\n------------------------------------------------------------");
-console.log(`  CURRENT STATE: ${state.current_state}`);
-console.log("------------------------------------------------------------");
-console.log(stateAdvice(state.current_state));
-
-if (role) {
-  console.log("\n------------------------------------------------------------");
-  console.log(`  ROLE: ${role}`);
-  console.log("------------------------------------------------------------");
-  const roleFile = path.join(root, "docs", `role-${role}.md`);
-  if (fs.existsSync(roleFile)) {
-    const content = fs.readFileSync(roleFile, "utf8");
-    console.log(args.full ? content : compactMarkdown(content));
-  } else {
-    console.log(`No role file found: docs/role-${role}.md`);
-  }
+console.log(`STATE ${current}`);
+console.log(`ROLE ${role}`);
+console.log("");
+console.log(stateRule(current));
+console.log("");
+console.log("LEGAL NEXT:");
+for (const next of allowed) console.log(`- ${next}: ${checklist(current, next).join("; ")}`);
+console.log("");
+console.log(roleRule(role));
+console.log("");
+console.log("ROLE GATES:");
+for (const line of roleGates(current, role)) {
+  console.log(line);
 }
 
-console.log("\n============================================================");
-console.log("  Instruction packet complete. Load detailed docs only when needed.");
-console.log("============================================================\n");
-
-function stateAdvice(stateName) {
-  const map = {
-    intake: "Normalize delivery metadata, then transition to tool_readiness.",
-    tool_readiness: "Run check-tool-readiness.js. Policy requires Linear for task and knowledge systems of record.",
-    waiting_for_tool_readiness_review: "Stop for human approval. Do not proceed until the gate is approved.",
-    knowledge_discovery: "Record sourced findings/gaps. Do not invent requirements.",
-    product_requirements: "Create product requirements artifact under the run directory.",
-    ui_design_prompt: "Create the Stitch prompt and prepare the design gate.",
-    waiting_for_design_stitch: "Stop for human Stitch/design input.",
-    design_assembly: "Fetch/save design assets; do not treat fetch errors as evidence.",
-    system_rules: "Record UI/system behavior rules derived from approved product/design artifacts.",
-    waiting_for_product_review: "Stop for human product review.",
-    task_breakdown: "Create executable tasks with scope, DoD, expected changes, verification, dependencies, and Linear IDs.",
-    waiting_for_delivery_plan_review: "Stop for human delivery-plan approval.",
-    delivery_plan_approved: "Dispatch work. Use Linear as task system of record.",
-    implementation_in_progress: "Activate one dependency-ready task per lane. WIP=1.",
-    frontend_dev: "Implement only approved frontend task scope. Use submit-task.js when ready.",
-    frontend_test: "Run/record tests. Return failed tasks to dev with evidence.",
-    backend_dev: "Implement only approved backend task scope. Use submit-task.js when ready.",
-    backend_test: "Run/record tests. Return failed tasks to dev with evidence.",
-    integration_verification: "Run contract, scope, and integration checks. Then sync knowledge.",
-    knowledge_improvement: "Promote reusable knowledge and sync it to Linear before final review.",
-    waiting_for_final_review: "Stop for human final review.",
-    done: "Delivery is closed. Keep state compact and handoff available.",
-    blocked: "Do not proceed until blocker owner/action is clear."
+function stateRule(stateName) {
+  const rules = {
+    intake: "Normalize request and create/select the run.",
+    tool_readiness: "Check Linear, code host, repo access, and frontend/backend tooling. Linear is required before task execution.",
+    knowledge_discovery: "Gather source-backed facts. Do not invent requirements.",
+    product_requirements: "Write product requirements with acceptance criteria and source evidence.",
+    product_review: "Stop for human product review. If rejected, go back to knowledge_discovery.",
+    design_assembly: "Assemble approved design inputs/assets.",
+    system_rules: "Write implementation rules from approved product requirements and design.",
+    system_rules_review: "Stop for human system-rules review. If rejected, go back to design_assembly.",
+    task_breakdown: "Create Linear tasks using the required task template. Rework always returns here.",
+    implementation_in_progress: "Spawn separate dev/test subagents. Frontend and backend may run in parallel.",
+    implementation_review: "Verify implementation against product requirements, then stop for human review.",
+    done: "Delivery complete.",
+    blocked: "Stop until user intervention clears the blocker."
   };
-  return map[stateName] || "Read docs/state-transitions.md for this state.";
+  return rules[stateName] || "Unknown state. Validate state before acting.";
 }
 
-function compactMarkdown(content) {
-  return content
-    .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed.startsWith("#") ||
-        trimmed.startsWith("-") ||
-        trimmed.startsWith("node ") ||
-        trimmed.startsWith("```");
-    })
-    .slice(0, 80)
-    .join("\n");
+function checklist(from, to) {
+  const checks = {
+    "intake->tool_readiness": ["delivery id/title/request recorded"],
+    "tool_readiness->knowledge_discovery": ["Linear ready", "code host ready", "repo access known"],
+    "knowledge_discovery->product_requirements": ["sources listed", "findings recorded", "gaps listed"],
+    "product_requirements->product_review": ["requirements artifact ready", "acceptance criteria present", "sources linked"],
+    "product_review->design_assembly": ["product_review gate approved by human"],
+    "product_review->knowledge_discovery": ["human requested product changes"],
+    "design_assembly->system_rules": ["design assets or approved fallback recorded"],
+    "system_rules->system_rules_review": ["system rules artifact ready", "design/product traceable"],
+    "system_rules_review->task_breakdown": ["system_rules_review gate approved by human"],
+    "system_rules_review->design_assembly": ["human requested design/rules changes"],
+    "task_breakdown->implementation_in_progress": ["Linear tasks created", "each task has description/template/checklist", "dependencies checked", "dispatch planned"],
+    "implementation_in_progress->implementation_review": ["all frontend/backend tasks verified", "MR comments recorded passed/failed", "task MRs merged", "implementation mapped to requirements"],
+    "implementation_in_progress->task_breakdown": ["human rework or scope change recorded"],
+    "implementation_review->done": ["implementation_review gate approved by human"],
+    "implementation_review->implementation_in_progress": ["human requested implementation fixes"],
+    "implementation_review->task_breakdown": ["human requested rework or task/scope changes"]
+  };
+  return checks[`${from}->${to}`] || ["blocker/reason recorded"];
+}
+
+function roleRule(roleName) {
+  const rules = {
+    product_manager: "Owns product requirements. Output must be reviewable by a human.",
+    project_manager: "Owns Linear task breakdown. Every task needs title, description, scope, DoD, test plan, dependencies, and MR description template.",
+    frontend_dev: "Implement only assigned frontend task scope. Do not test-sign off your own work.",
+    frontend_test: "Test assigned frontend work. On pass/fail, comment on the MR and record evidence. Passed tasks still need merged MR evidence before verified.",
+    backend_dev: "Implement only assigned backend task scope. Do not test-sign off your own work.",
+    backend_test: "Test assigned backend work. On pass/fail, comment on the MR and record evidence. Passed tasks still need merged MR evidence before verified.",
+    orchestrator: "Owns state transitions, subagent dispatch, review gates, and rework routing."
+  };
+  return rules[roleName] || rules.orchestrator;
+}
+
+function roleGates(stateName, roleName) {
+  if (stateName !== "implementation_in_progress") {
+    return ["- Follow the transition checklist for this state.", "- Do not skip human review gates."];
+  }
+  if (roleName === "orchestrator") {
+    return [
+      "- ALLOWED: read state, plan-agent-dispatch, record-agent-spawn, inspect status, route rework.",
+      "- DENIED: edit project files, run dev/test directly, transition tasks without a recorded role lease, claim implementation complete.",
+      "- REQUIRED: spawn separate dev and test agents; record each returned agent id before task transitions."
+    ];
+  }
+  if (roleName === "frontend_dev" || roleName === "backend_dev") {
+    return [
+      "- ALLOWED: edit only active assigned task scope after check-write-scope passes for this role.",
+      "- DENIED: test-sign off your own work, verify the task, edit planned tasks, edit unrelated dirty files.",
+      "- REQUIRED: record changed files/evidence, then transition active -> implemented."
+    ];
+  }
+  if (roleName === "frontend_test" || roleName === "backend_test") {
+    return [
+      "- ALLOWED: verify the assigned implemented task and record passed/failed evidence.",
+      "- DENIED: edit implementation files, implement planned work, bypass MR status comment or merge evidence.",
+      "- REQUIRED: transition implemented -> testing, run checks, record-test-results, comment passed/failed on MR, and ensure merged MR evidence before verified."
+    ];
+  }
+  return ["- DENIED: implementation actions are reserved for orchestrator, dev, and test roles."];
 }
 
 function inferRole(state) {
-  const roleEntries = Object.entries(state.roles || {});
-  const active = roleEntries.find(([, value]) => value && value.status === "in_progress");
+  const active = Object.entries(state.roles || {}).find(([, value]) => value && value.status === "in_progress");
   return active ? active[0] : "orchestrator";
 }
 
 function parseArgs(rawArgs) {
-  const parsed = { stateFile: "", role: "", full: false };
+  const parsed = { stateFile: "", role: "" };
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
     if (!arg.startsWith("--") && !parsed.stateFile) {
       parsed.stateFile = arg;
       continue;
     }
-    switch (arg) {
-      case "--role":
-        parsed.role = rawArgs[++index] || "";
-        break;
-      case "--full":
-        parsed.full = true;
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
+    if (arg === "--role") {
+      parsed.role = rawArgs[++index] || "";
+      continue;
     }
+    throw new Error(`Unknown argument: ${arg}`);
   }
   return parsed;
 }

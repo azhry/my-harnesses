@@ -88,31 +88,51 @@ function staticPrefix(pattern) {
   return slash === -1 ? prefix : prefix.slice(0, slash + 1);
 }
 
-function promptForTask(task) {
+function dispatchRoleFor(task) {
+  if (task.status === "implemented" && task.role === "frontend_dev") return "frontend_test";
+  if (task.status === "implemented" && task.role === "backend_dev") return "backend_test";
+  if (["planned", "failed"].includes(task.status)) return task.role;
+  return "";
+}
+
+function promptForTask(task, dispatchRole) {
   const gitFlow = task.git_flow || {};
   const gitPolicy = state.implementation && state.implementation.git_policy
     ? state.implementation.git_policy
     : { base_branch: "main", target_branch: "main" };
-  const devGitInstructions = ["frontend_dev", "backend_dev"].includes(task.role)
+  const devGitInstructions = ["frontend_dev", "backend_dev"].includes(dispatchRole)
     ? [
       `Git lifecycle: create feature branch ${gitFlow.feature_branch || "(fill task git_flow.feature_branch)"} from ${gitPolicy.base_branch}.`,
-      "Implement the task on that feature branch.",
-      "After matching tests pass, push the feature branch.",
-      `Create a merge request/pull request targeting ${gitPolicy.target_branch}.`,
+      "Implement the assigned task and record changed files/evidence.",
+      "Do not mark the task verified; the separate test agent owns test sign-off.",
+      "After test sign-off, push the feature branch.",
+      `Create a merge request/pull request targeting ${gitPolicy.target_branch} using the MR description template.`,
+      "After MR creation, ensure the test agent comments passed or failed on the MR.",
       gitFlow.auto_merge === false
         ? `Do not merge automatically because auto_merge=false. Reason: ${gitFlow.auto_merge_disabled_reason || "(missing)"}`
-        : "After merge checks pass, merge the merge request/pull request by default.",
-      "Record branch, test, push, MR, merge-check, and merge evidence in task.git_flow."
+        : "After tests pass and the MR has a passed status comment, merge the task MR unless code-host policy blocks it.",
+      "Record branch, test, push, MR, MR status comment, and merge evidence in task.git_flow."
+    ]
+    : [];
+  const testInstructions = ["frontend_test", "backend_test"].includes(dispatchRole)
+    ? [
+      "Test the assigned task only. Do not edit implementation files or claim dev ownership.",
+      "Use transition-task.js to move the task to testing if needed.",
+      "Run the verification commands from the task plan.",
+      "Record passed/failed evidence with record-test-results.js using your test role.",
+      "Passed tests alone are not verified; verified requires passed MR comment and merged MR evidence.",
+      "On failure, transition the task to failed so the dev agent loop resumes."
     ]
     : [];
 
   return [
-    `Use the agent-spec-ops harness role ${task.role} for task ${task.id}: ${task.title}.`,
+    `Use the agent-spec-ops harness role ${dispatchRole} for task ${task.id}: ${task.title}.`,
     "You are not alone in the codebase; do not revert changes made by other agents, and keep edits inside your write scope.",
     `Delivery ID: ${state.delivery.id || "(unset)"}.`,
     `Lane: ${task.lane}.`,
     `Description: ${task.description}`,
     ...devGitInstructions,
+    ...testInstructions,
     `Allowed write scope: ${scope(task).join(", ")}`,
     `Definition of done: ${(task.definition_of_done || []).join("; ")}`,
     `Verification: ${(task.verification || []).join("; ")}`,
@@ -123,12 +143,12 @@ function promptForTask(task) {
 function runnableTasks() {
   const activeLeases = activeLeaseTaskIds();
   const blockedRoles = activeRoles();
-  const runnableStatuses = ["planned", "failed"];
   return tasks.filter((task) => {
-    if (!["frontend_dev", "frontend_test", "backend_dev", "backend_test"].includes(task.role)) {
+    const dispatchRole = dispatchRoleFor(task);
+    if (!["frontend_dev", "frontend_test", "backend_dev", "backend_test"].includes(dispatchRole)) {
       return false;
     }
-    if (!runnableStatuses.includes(task.status)) {
+    if (!["planned", "failed", "implemented"].includes(task.status)) {
       return false;
     }
     if (!depsSatisfied(task)) {
@@ -137,7 +157,7 @@ function runnableTasks() {
     if (activeLeases.has(task.id)) {
       return false;
     }
-    if (blockedRoles.has(task.role)) {
+    if (blockedRoles.has(dispatchRole)) {
       return false;
     }
     return true;
@@ -184,7 +204,7 @@ if (enableAuto) {
   state.agent_dispatch.auto_spawn = true;
 }
 
-const eligibleState = ["delivery_plan_approved", "implementation_in_progress", "frontend_dev", "backend_dev", "frontend_test", "backend_test"].includes(state.current_state);
+const eligibleState = state.current_state === "implementation_in_progress";
 const candidates = eligibleState ? runnableTasks() : [];
 const { chosen, blockers } = chooseParallelTasks(candidates, state.agent_dispatch.max_parallel_agents || 2);
 const shouldPlan = state.agent_dispatch.mode === "multi_agent" && state.agent_dispatch.auto_spawn && state.agent_dispatch.parallel_allowed;
@@ -218,19 +238,22 @@ if (!shouldPlan) {
   );
   const newRequests = chosen
     .filter((task) => !existingOpenRequestTaskIds.has(task.id))
-    .map((task) => ({
-      id: `spawn-${task.id}-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
-      role: task.role,
-      lane: task.lane,
-      task_ids: [task.id],
-      status: "planned",
-      agent_id: "",
-      prompt: promptForTask(task),
-      write_scope: scope(task),
-      created_at: now,
-      updated_at: now,
-      blockers: []
-    }));
+    .map((task) => {
+      const dispatchRole = dispatchRoleFor(task);
+      return {
+        id: `spawn-${dispatchRole}-${task.id}-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
+        role: dispatchRole,
+        lane: task.lane,
+        task_ids: [task.id],
+        status: "planned",
+        agent_id: "",
+        prompt: promptForTask(task, dispatchRole),
+        write_scope: scope(task),
+        created_at: now,
+        updated_at: now,
+        blockers: []
+      };
+    });
 
   state.agent_dispatch.spawn_requests = [
     ...(state.agent_dispatch.spawn_requests || []),

@@ -5,11 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { spawnSync, execSync } = require("child_process");
-const {
-  ensureRunMemory,
-  loadJson,
-  writeJson
-} = require("./lib/memory-store");
+const { ensureRunMemory } = require("./lib/memory-store");
 const { safeLinearMetadata } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
 
@@ -480,25 +476,14 @@ function updateStateFile(file, readiness) {
   if (productTracker && ["missing", "blocked"].includes(productTracker.status)) {
     state.memory.local_task_provider = {
       ...state.memory.local_task_provider,
-      enabled: true,
-      mode: "local",
-      reason: `${productTracker.provider} is unavailable: ${productTracker.blocker}`,
+      enabled: false,
+      mode: "external",
+      reason: `Linear is required; ${productTracker.provider} is unavailable: ${productTracker.blocker}`,
       external_provider: productTracker.provider,
-      sync_status: "local_only",
+      sync_status: "blocked",
       last_synced_at: "",
-      path: state.memory.local_tasks_path
+      path: ""
     };
-    const taskFile = path.join(prepared.runDir, state.memory.local_tasks_path);
-    const localTasks = loadJson(taskFile);
-    if (localTasks) {
-      localTasks.provider.external_provider = productTracker.provider;
-      localTasks.provider.sync_status = "local_only";
-      localTasks.provider.evidence = [
-        `Using local task storage because ${productTracker.provider} is unavailable`
-      ];
-      localTasks.updated_at = now;
-      writeJson(taskFile, localTasks);
-    }
   }
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
   console.log(`Updated ${statePath}`);

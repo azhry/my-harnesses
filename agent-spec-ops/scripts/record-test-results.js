@@ -17,7 +17,15 @@ if (!args.stateFile || !args.taskId) {
     "  --evidence TEXT           Evidence of test execution (repeatable)",
     "  --output TEXT             Test output or path to log file",
     "  --failure TEXT            Failure description (repeatable)",
-    "  --case NAME               Test case name (repeatable)"
+    "  --case NAME               Test case name (repeatable)",
+    "  --role ROLE               Test role recording the result",
+    "  --mr-url URL              MR URL for this task",
+    "  --mr-comment-url URL      MR comment URL after posting passed/failed status",
+    "  --mr-comment-evidence TXT Evidence that the MR status comment was posted",
+    "  --merged                  Record that the MR is merged",
+    "  --merge-commit SHA        Merge commit SHA",
+    "  --merge-evidence TXT      Evidence that the MR was merged (repeatable)",
+    "  --merge-check-evidence TXT Evidence that merge checks passed (repeatable)"
   ].join("\n"));
   process.exit(1);
 }
@@ -33,6 +41,29 @@ if (taskIndex === -1) {
 }
 
 const task = tasks[taskIndex];
+const expectedRole = expectedTestRole(task);
+
+if (!["passed", "failed"].includes(args.status)) {
+  console.error("--status must be passed or failed");
+  process.exit(1);
+}
+if (!expectedRole) {
+  console.error(`${args.taskId} (${task.role || "no-role"}) does not accept test result recording.`);
+  process.exit(1);
+}
+if (args.role && args.role !== expectedRole) {
+  console.error(`${args.taskId}: test results must be recorded by ${expectedRole}, not ${args.role}.`);
+  process.exit(1);
+}
+if (task.status !== "testing") {
+  console.error(`${args.taskId}: cannot record test results while task status is ${task.status}. Transition to testing after spawning ${expectedRole}.`);
+  process.exit(1);
+}
+if (!hasActiveLease(state, args.taskId, expectedRole)) {
+  console.error(`${args.taskId}: missing recorded ${expectedRole} subagent lease. Run plan-agent-dispatch.js and record-agent-spawn.js before testing.`);
+  process.exit(1);
+}
+
 task.test = task.test || {};
 task.test.cases = [...new Set([...(task.test.cases || []), ...args.cases])];
 task.test.commands = [...new Set([...(task.test.commands || []), ...args.commands])];
@@ -45,7 +76,7 @@ if (args.output) {
   const slug = args.taskId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "test";
   const outputPath = path.join(outputDir, `${slug}.log`);
   fs.writeFileSync(outputPath, args.output);
-  const runRelPath = `runs/${state.delivery && state.delivery.id ? state.delivery.id : path.basename(path.dirname(statePath))}/test-output/${slug}.log`;
+  const runRelPath = `test-output/${slug}.log`;
   task.test.output_file = runRelPath;
 
   task.test.evidence.push(runRelPath);
@@ -68,9 +99,45 @@ task.test.last_run_at = now;
 task.test.status = args.status;
 
 if (task.test.status === "passed") {
-  task.git_flow = task.git_flow || {};
-  task.git_flow.local_tests_passed = true;
-  task.git_flow.test_evidence = [...new Set([...(task.git_flow.test_evidence || []), ...args.evidence])];
+  const git = ensureGitFlow(task);
+  git.local_tests_passed = true;
+  git.test_evidence = [...new Set([...(git.test_evidence || []), ...args.evidence])];
+}
+
+if (args.mrCommentUrl || args.mrCommentEvidence.length) {
+  const git = ensureGitFlow(task);
+  git.merge_request_comment_status = args.status;
+  git.merge_request_comment_url = args.mrCommentUrl;
+  git.merge_request_comment_evidence = [
+    ...new Set([...(git.merge_request_comment_evidence || []), ...args.mrCommentEvidence, args.mrCommentUrl].filter(Boolean))
+  ];
+}
+
+if (args.mrUrl || args.merged || args.mergeCommit || args.mergeEvidence.length || args.mergeCheckEvidence.length) {
+  const git = ensureGitFlow(task);
+  if (args.mrUrl) git.merge_request_url = args.mrUrl;
+  if (args.merged) {
+    git.merge_request_status = "merged";
+    git.merged = true;
+    git.merge_checks_passed = true;
+  }
+  if (args.mergeCommit) git.merge_commit = args.mergeCommit;
+  git.merge_evidence = [
+    ...new Set([
+      ...(git.merge_evidence || []),
+      ...args.mergeEvidence,
+      args.merged ? "MR merged" : "",
+      args.mergeCommit ? `merge commit ${args.mergeCommit}` : "",
+      args.mrUrl || ""
+    ].filter(Boolean))
+  ];
+  git.merge_check_evidence = [
+    ...new Set([
+      ...(git.merge_check_evidence || []),
+      ...args.mergeCheckEvidence,
+      args.merged ? "merge accepted by code host" : ""
+    ].filter(Boolean))
+  ];
 }
 
 state.delivery.updated_at = now;
@@ -107,7 +174,15 @@ function parseArgs(rawArgs) {
     evidence: [],
     output: "",
     failures: [],
-    cases: []
+    cases: [],
+    role: "",
+    mrCommentUrl: "",
+    mrCommentEvidence: [],
+    mrUrl: "",
+    merged: false,
+    mergeCommit: "",
+    mergeEvidence: [],
+    mergeCheckEvidence: []
   };
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
@@ -144,10 +219,91 @@ function parseArgs(rawArgs) {
       parsed.cases.push(rawArgs[++index]);
       continue;
     }
+    if (arg === "--role") {
+      parsed.role = rawArgs[++index];
+      continue;
+    }
+    if (arg === "--mr-comment-url") {
+      parsed.mrCommentUrl = rawArgs[++index];
+      continue;
+    }
+    if (arg === "--mr-url") {
+      parsed.mrUrl = rawArgs[++index];
+      continue;
+    }
+    if (arg === "--mr-comment-evidence") {
+      parsed.mrCommentEvidence.push(rawArgs[++index]);
+      continue;
+    }
+    if (arg === "--merged") {
+      parsed.merged = true;
+      continue;
+    }
+    if (arg === "--merge-commit") {
+      parsed.mergeCommit = rawArgs[++index];
+      continue;
+    }
+    if (arg === "--merge-evidence") {
+      parsed.mergeEvidence.push(rawArgs[++index]);
+      continue;
+    }
+    if (arg === "--merge-check-evidence") {
+      parsed.mergeCheckEvidence.push(rawArgs[++index]);
+      continue;
+    }
   }
   if (parsed.taskId && !parsed.stateFile) {
     parsed.stateFile = parsed.taskId;
     parsed.taskId = "";
   }
   return parsed;
+}
+
+function ensureGitFlow(task) {
+  task.git_flow = task.git_flow || {
+    base_branch: "",
+    target_branch: "",
+    feature_branch: "",
+    branch_created: false,
+    branch_evidence: [],
+    local_tests_passed: false,
+    test_evidence: [],
+    pushed: false,
+    push_evidence: [],
+    merge_request_status: "not_started",
+    merge_request_url: "",
+    merge_request_evidence: [],
+    merge_request_comment_status: "not_started",
+    merge_request_comment_url: "",
+    merge_request_comment_evidence: [],
+    auto_merge: false,
+    auto_merge_disabled_reason: "",
+    merge_checks_passed: false,
+    merge_check_evidence: [],
+    merged: false,
+    merge_commit: "",
+    merge_evidence: [],
+    blockers: []
+  };
+  return task.git_flow;
+}
+
+function expectedTestRole(task) {
+  if (task.role === "frontend_dev") return "frontend_test";
+  if (task.role === "backend_dev") return "backend_test";
+  if (task.role === "frontend_test" || task.role === "backend_test") return task.role;
+  return "";
+}
+
+function hasActiveLease(state, taskId, role) {
+  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
+    ? state.agent_dispatch.leases
+    : [];
+  return leases.some((lease) =>
+    lease &&
+    lease.task_id === taskId &&
+    lease.role === role &&
+    lease.agent_id &&
+    ["leased", "active"].includes(lease.status || "leased")
+  );
 }

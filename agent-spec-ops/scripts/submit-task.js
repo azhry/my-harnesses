@@ -3,227 +3,483 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { spawnSync } = require("child_process");
 const { loadSecretEnv } = require("./lib/env-loader");
 
-const args = process.argv.slice(2);
-const stateFile = args[0];
-const taskId = args[1];
-loadSecretEnv(stateFile);
+const args = parseArgs(process.argv.slice(2));
 
-let commitMsg = "";
-let testCommand = "";
-
-for (let i = 2; i < args.length; i++) {
-  if (args[i] === "--commit-msg" && i + 1 < args.length) {
-    commitMsg = args[++i];
-  } else if (args[i] === "--test-command" && i + 1 < args.length) {
-    testCommand = args[++i];
-  }
-}
-
-if (!stateFile || !taskId || !commitMsg) {
-  console.error("Usage: node scripts/submit-task.js <workflow-state.json> <TASK_ID> --commit-msg \"<msg>\" [--test-command \"<cmd>\"]");
+if (!args.stateFile || !args.taskId || !args.commitMsg) {
+  console.error("Usage: node scripts/submit-task.js <workflow-state.json> <TASK_ID> --commit-msg \"<msg>\" [--test-command \"<cmd>\"] [--repo-path <repo>]");
   process.exit(1);
 }
 
-const statePath = path.resolve(stateFile);
+const statePath = path.resolve(args.stateFile);
+loadSecretEnv(statePath);
+
 if (!fs.existsSync(statePath)) {
   console.error(`State file not found: ${statePath}`);
   process.exit(1);
 }
 
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-const deliveryId = state.delivery.id;
-const tasks = state.task_graph && state.task_graph.tasks ? state.task_graph.tasks : [];
-const taskIndex = tasks.findIndex(t => t.id === taskId);
+const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
+const task = tasks.find((item) => item.id === args.taskId);
 
-if (taskIndex === -1) {
-  console.error(`Task ${taskId} not found.`);
+if (!task) {
+  console.error(`Task not found: ${args.taskId}`);
+  process.exit(1);
+}
+if (!isDevTask(task)) {
+  console.error(`${args.taskId} is ${task.role}. submit-task.js only handles frontend_dev/backend_dev tasks.`);
+  process.exit(1);
+}
+if (!["implemented", "testing"].includes(task.status)) {
+  console.error(`${args.taskId} is ${task.status}. submit-task.js only runs after implementation is recorded and the task is in implemented/testing.`);
+  process.exit(1);
+}
+if (!hasActiveLease(state, args.taskId, task.role)) {
+  console.error(`${args.taskId}: missing recorded ${task.role} subagent lease. Run plan-agent-dispatch.js and record-agent-spawn.js before submitting.`);
   process.exit(1);
 }
 
-const task = tasks[taskIndex];
-if (!["frontend_dev", "backend_dev"].includes(task.role)) {
-  console.error(`Task ${taskId} has role ${task.role}. submit-task.js is only for frontend_dev and backend_dev.`);
-  process.exit(1);
-}
-
-const branchName = `delivery/${deliveryId}/${taskId}`;
 const runDir = path.dirname(statePath);
+const deliveryId = state.delivery && state.delivery.id ? state.delivery.id : path.basename(runDir);
+const policy = (state.implementation && state.implementation.git_policy) || {};
+const repoPath = path.resolve(args.repoPath || policy.repo_path || state.workspace_root || process.cwd());
+const baseBranch = policy.base_branch || "main";
+const targetBranch = policy.target_branch || baseBranch;
+const branchName = formatBranch(policy.branch_name_pattern || "delivery/<DELIVERY_ID>/<TASK_ID>", deliveryId, args.taskId);
+const blockers = [];
 
-const gitPolicy = state.implementation && state.implementation.git_policy ? state.implementation.git_policy : {};
-const repoPath = gitPolicy.repo_path || state.workspace_root || process.cwd();
+console.log(`[submit] ${args.taskId}`);
+console.log(`repo: ${repoPath}`);
+console.log(`branch: ${branchName}`);
 
-console.log(`\n=== Submitting Task ${taskId} ===`);
-console.log(`Repo: ${repoPath}`);
-console.log(`Branch: ${branchName}`);
-console.log(`Commit: ${commitMsg}`);
-console.log(`Test: ${testCommand || "None"}\n`);
+const insideRepo = run(repoPath, "git", ["rev-parse", "--is-inside-work-tree"]);
+if (!insideRepo.ok) fail(`Not a git repository: ${repoPath}`);
 
-// 1. Git Branch
-try {
-  execSync(`git fetch origin main`, { cwd: repoPath, stdio: "pipe" });
-  try {
-    execSync(`git checkout ${branchName}`, { cwd: repoPath, stdio: "pipe" });
-    console.log(`✓ Checked out existing branch ${branchName}`);
-  } catch {
-    execSync(`git checkout -b ${branchName} origin/main`, { cwd: repoPath, stdio: "pipe" });
-    console.log(`✓ Created new branch ${branchName} from origin/main`);
-  }
-} catch (e) {
-  console.error(`Failed to handle git branch. Are you in a valid repo?\n${e.message}`);
-  process.exit(1);
+const initialDirtyFiles = dirtyFiles(repoPath);
+const outOfScope = initialDirtyFiles.filter((file) => !isPathAllowedForTask(file, task));
+if (outOfScope.length) {
+  fail([
+    "Dirty worktree contains files outside this task scope. Refusing to submit.",
+    ...outOfScope.map((file) => `- ${file}`),
+    "Commit/stash unrelated files or update the task scope before submitting."
+  ].join("\n"));
+}
+if (initialDirtyFiles.length) {
+  task.implementation = task.implementation || { changed_files: [], evidence: [], deviations: [] };
+  task.implementation.changed_files = [
+    ...new Set([...(task.implementation.changed_files || []), ...initialDirtyFiles])
+  ];
+  task.implementation.evidence = [
+    ...new Set([...(task.implementation.evidence || []), `submit-task saw ${initialDirtyFiles.length} dirty scoped file(s)`])
+  ];
 }
 
-// 2. Commit
-try {
-  execSync(`git add -A`, { cwd: repoPath, stdio: "pipe" });
-  const status = execSync(`git status --porcelain`, { cwd: repoPath, stdio: "pipe" }).toString();
-  if (status.trim()) {
-    execSync(`git commit -m "${commitMsg}"`, { cwd: repoPath, stdio: "pipe" });
-    console.log(`✓ Committed changes`);
-  } else {
-    console.log(`✓ No new changes to commit`);
-  }
-} catch (e) {
-  console.error(`Failed to commit changes.\n${e.message}`);
-  process.exit(1);
-}
+checkoutBranch(repoPath, branchName);
+runRequired(repoPath, "git", ["add", "-A"], "git add failed");
 
-// 3. Test
-let testPassed = true;
-let testOutput = "No tests run.";
-if (testCommand && testCommand.trim().length > 0 && !testCommand.includes("echo")) {
-  console.log(`\nRunning tests: ${testCommand}...`);
-  try {
-    testOutput = execSync(testCommand, { cwd: repoPath, stdio: "pipe", encoding: "utf8" });
-    console.log(`✓ Tests passed!`);
-  } catch (e) {
-    testPassed = false;
-    testOutput = (e.stdout || "") + "\n" + (e.stderr || "");
-    console.error(`✗ Tests failed!\n${testOutput}`);
-    console.error(`\nAborting submit. Please fix tests and run submit-task.js again.`);
-    process.exit(1);
-  }
+const status = runRequired(repoPath, "git", ["status", "--porcelain"], "git status failed");
+if (status.stdout.trim()) {
+  runRequired(repoPath, "git", ["commit", "-m", args.commitMsg], "git commit failed");
+  console.log("commit: created");
 } else {
-  console.log(`✓ Skipping tests (no valid command provided)`);
+  console.log("commit: no changes");
 }
 
-// Write test output to test-output/ subdirectory
-const testOutputDir = path.join(runDir, "test-output");
-fs.mkdirSync(testOutputDir, { recursive: true });
-const testLogFile = path.join("test-output", `${taskId}.log`);
-fs.writeFileSync(path.join(testOutputDir, `${taskId}.log`), testOutput);
-
-// Record tests in state
+const test = runTest(repoPath, args.testCommand);
+const testOutputFile = writeTestOutput(runDir, args.taskId, test.output);
 task.test = {
-  status: testPassed ? "passed" : "failed",
+  status: test.passed ? "passed" : "failed",
   last_run_at: new Date().toISOString(),
-  commands: [testCommand || "none"],
-  failures: [],
-  output_file: testLogFile
+  commands: [args.testCommand || "none"],
+  failures: test.passed ? [] : [test.summary],
+  output_file: testOutputFile
 };
-console.log(`✓ Recorded test results`);
 
-// 4. Push
-try {
-  execSync(`git push -u origin ${branchName}`, { cwd: repoPath, stdio: "pipe" });
-  console.log(`✓ Pushed to origin/${branchName}`);
-} catch (e) {
-  console.error(`Failed to push to origin. Ensure remote is accessible.\n${e.message}`);
+const push = run(repoPath, "git", ["push", "-u", "origin", branchName], { timeout: 60000 });
+if (!push.ok) blockers.push(`push failed: ${push.stderr || push.stdout || push.error}`);
+
+const pr = push.ok ? ensureMergeRequest(repoPath, {
+  deliveryId,
+  task,
+  taskId: args.taskId,
+  branchName,
+  targetBranch
+}) : { ok: false, url: "", number: "", evidence: [], error: "push failed" };
+if (!pr.ok) blockers.push(pr.error || "merge request creation failed");
+
+const comment = pr.ok ? commentMergeRequest(repoPath, pr.number || pr.url, {
+  taskId: args.taskId,
+  status: test.passed ? "passed" : "failed",
+  command: args.testCommand || "none",
+  evidence: testOutputFile,
+  summary: test.summary
+}) : { ok: false, url: "", evidence: [], error: "merge request missing" };
+if (!comment.ok) blockers.push(comment.error || "merge request status comment failed");
+
+const merge = pr.ok && comment.ok && test.passed
+  ? mergeMergeRequest(repoPath, pr.number || pr.url, policy)
+  : { ok: false, attempted: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "merge skipped until tests and MR comment pass" };
+if (pr.ok && comment.ok && test.passed && !merge.ok) {
+  blockers.push(merge.error || "merge failed");
+}
+
+task.git_flow = {
+  base_branch: baseBranch,
+  target_branch: targetBranch,
+  feature_branch: branchName,
+  branch_created: true,
+  branch_evidence: [`checked out ${branchName}`],
+  local_tests_passed: test.passed,
+  test_evidence: [testOutputFile],
+  pushed: push.ok,
+  push_evidence: push.ok ? [`pushed origin/${branchName}`] : [],
+  merge_request_status: merge.ok ? "merged" : pr.ok ? "open" : "blocked",
+  merge_request_url: pr.url || "",
+  merge_request_evidence: pr.evidence || [],
+  merge_request_comment_status: comment.ok ? (test.passed ? "passed" : "failed") : "blocked",
+  merge_request_comment_url: comment.url || "",
+  merge_request_comment_evidence: comment.evidence || [],
+  auto_merge: merge.attempted || false,
+  auto_merge_disabled_reason: merge.disabledReason || policy.auto_merge_disabled_reason || "",
+  merge_checks_passed: merge.checksPassed || false,
+  merge_check_evidence: merge.checkEvidence || [],
+  merged: merge.ok,
+  merge_commit: merge.commit || "",
+  merge_evidence: merge.evidence || [],
+  blockers
+};
+
+state.delivery.updated_at = new Date().toISOString();
+fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+
+if (!test.passed || blockers.length) {
+  console.error("submit incomplete:");
+  if (!test.passed) console.error(`- tests failed: ${test.summary}`);
+  for (const blocker of blockers) console.error(`- ${blocker}`);
   process.exit(1);
 }
 
-// 5. PR
-let prUrl = "";
-try {
-  const ghBin = process.env.GH_CLI_PATH || "gh";
-  const ghEnv = { ...process.env, GH_PROMPT_DISABLE: "1", NO_COLOR: "1" };
-  const ghOpts = { cwd: repoPath, stdio: "pipe", encoding: "utf8", env: ghEnv };
+console.log("submit complete");
+console.log(`next: node scripts/transition-task.js "${args.stateFile}" ${args.taskId} verified`);
 
-  // Check if gh binary is available
-  let ghAvailable = false;
-  try {
-    execSync(`"${ghBin}" --version`, { stdio: "pipe", encoding: "utf8", env: ghEnv });
-    ghAvailable = true;
-  } catch {
-    console.error("✗ gh CLI binary not found. Install from https://cli.github.com/ or authenticate with `gh auth login`.");
+function parseArgs(raw) {
+  const parsed = { stateFile: raw[0] || "", taskId: raw[1] || "", commitMsg: "", testCommand: "", repoPath: "" };
+  for (let i = 2; i < raw.length; i += 1) {
+    if (raw[i] === "--commit-msg") parsed.commitMsg = raw[++i] || "";
+    else if (raw[i] === "--test-command") parsed.testCommand = raw[++i] || "";
+    else if (raw[i] === "--repo-path") parsed.repoPath = raw[++i] || "";
   }
+  return parsed;
+}
 
-  if (ghAvailable) {
-    // Check if PR already exists
-    const prList = execSync(`"${ghBin}" pr list --head ${branchName} --json url`, ghOpts);
-    const prs = JSON.parse(prList);
-    if (prs.length > 0) {
-      prUrl = prs[0].url;
-      console.log(`✓ PR already exists: ${prUrl}`);
-    } else {
-      const title = `[${deliveryId}] ${taskId}: ${task.title}`;
-      let body = `Closes ${taskId}\n\n${task.description}`;
-      try {
-        const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
-        if (fs.existsSync(templatePath)) {
-          body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
-        }
-      } catch { }
+function isDevTask(task) {
+  return task.role === "frontend_dev" || task.role === "backend_dev";
+}
 
-      const prOutput = execSync(`"${ghBin}" pr create --base main --head ${branchName} --title "${title}" --body "${body}"`, ghOpts);
-      prUrl = prOutput.trim();
-      console.log(`✓ Created PR: ${prUrl}`);
-    }
+function hasActiveLease(state, taskId, role) {
+  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
+    ? state.agent_dispatch.leases
+    : [];
+  return leases.some((lease) =>
+    lease &&
+    lease.task_id === taskId &&
+    lease.role === role &&
+    lease.agent_id &&
+    ["leased", "active"].includes(lease.status || "leased")
+  );
+}
+
+function dirtyFiles(repo) {
+  const status = runRequired(repo, "git", ["status", "--porcelain"], "git status failed");
+  return status.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .flatMap(parseStatusPath)
+    .filter(Boolean);
+}
+
+function parseStatusPath(line) {
+  const body = line.length > 3 ? line.slice(3).trim() : "";
+  if (!body) return [];
+  if (body.includes(" -> ")) {
+    return body.split(" -> ").map(cleanStatusPath);
   }
+  return [cleanStatusPath(body)];
+}
 
-  if (!prUrl && process.env.GITHUB_TOKEN) {
-    console.log("  gh CLI failed or unavailable — falling back to GitHub API...");
-    const repoUrl = execSync(`git remote get-url origin`, { cwd: repoPath, stdio: "pipe", encoding: "utf8" }).trim();
-    const repoPathMatch = repoUrl.match(/(?:github\.com[\/:])?([^\/]+\/[^\/\.]+?)(?:\.git)?$/);
-    if (repoPathMatch) {
-      const fullRepoName = repoPathMatch[1];
-      const title = `[${deliveryId}] ${taskId}: ${task.title}`;
-      let body = `Closes ${taskId}\n\n${task.description}`;
-      try {
-        const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
-        if (fs.existsSync(templatePath)) {
-          body = fs.readFileSync(templatePath, "utf8").replace(/<TASK_ID>/g, taskId).replace(/<DELIVERY_ID>/g, deliveryId);
-        }
-      } catch { }
-      const apiPayload = JSON.stringify({
-        title, body, head: branchName, base: "main"
-      });
-      const apiResult = execSync(
-        `node -e "const https=require('https');const req=https.request({hostname:'api.github.com',path:'/repos/${fullRepoName}/pulls',method:'POST',headers:{'Authorization':'Bearer ' + process.env.GITHUB_TOKEN,'Content-Type':'application/json','User-Agent':'submit-task'},timeout:15000},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>process.stdout.write(d));});req.write(${JSON.stringify(apiPayload)});req.on('error',e=>{process.stderr.write(e.message);process.exit(1)});req.end();"`,
-        { stdio: "pipe", encoding: "utf8", timeout: 20000 }
-      );
-      const apiData = JSON.parse(apiResult);
-      if (apiData.html_url) {
-        prUrl = apiData.html_url;
-        console.log(`✓ Created PR via API: ${prUrl}`);
-      } else {
-        console.error(`  API error: ${apiData.message || JSON.stringify(apiData)}`);
+function cleanStatusPath(value) {
+  return String(value).replace(/^"|"$/g, "").replace(/\\/g, "/");
+}
+
+function isPathAllowedForTask(filePath, task) {
+  const normalizedFile = cleanStatusPath(filePath).replace(/^\.\//, "");
+  const scope = task.scope || {};
+  const allowedPaths = Array.isArray(scope.allowed_paths) ? scope.allowed_paths : [];
+  const allowedRepos = Array.isArray(scope.allowed_repos) ? scope.allowed_repos : [];
+  return allowedPaths.some((allowedPath) => {
+    const normalizedAllowed = staticAllowedPath(allowedPath).replace(/^\.\//, "").replace(/\/?$/, "/");
+    if (normalizedAllowed === "/" || normalizedAllowed === "./" || normalizedAllowed === ".") return true;
+    if (normalizedFile === normalizedAllowed.replace(/\/$/, "") || normalizedFile.startsWith(normalizedAllowed)) return true;
+    for (const repo of allowedRepos) {
+      const repoPrefix = `${cleanStatusPath(repo).replace(/\/?$/, "/")}`;
+      if (normalizedAllowed.startsWith(repoPrefix)) {
+        const withoutRepo = normalizedAllowed.slice(repoPrefix.length);
+        if (normalizedFile === withoutRepo.replace(/\/$/, "") || normalizedFile.startsWith(withoutRepo)) return true;
       }
     }
-  }
-} catch (e) {
-  console.error(`✗ Failed to create PR: ${e.message}`);
+    return false;
+  });
 }
 
-// Update Git Flow State
-task.git_flow = {
-  feature_branch: branchName,
-  base_branch: "main",
-  target_branch: "main",
-  branch_created: true,
-  branch_evidence: [`Created and checked out ${branchName}`],
-  local_tests_passed: testPassed,
-  test_evidence: [testLogFile],
-  pushed: true,
-  push_evidence: [`Pushed ${branchName} to origin`],
-  merge_request_status: prUrl ? "created" : "failed",
-  merge_request_url: prUrl
-};
+function staticAllowedPath(allowedPath) {
+  const normalized = cleanStatusPath(allowedPath);
+  const wildcard = normalized.search(/[*?]/);
+  if (wildcard === -1) return normalized || ".";
+  const prefix = normalized.slice(0, wildcard);
+  const slash = prefix.lastIndexOf("/");
+  if (slash === -1) return prefix || ".";
+  return prefix.slice(0, slash + 1) || ".";
+}
 
-fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
-console.log(`\n=== Successfully submitted Task ${taskId} ===`);
-console.log(`You can now transition this task to 'verified' using:`);
-console.log(`node scripts/transition-task.js "${stateFile}" ${taskId} verified`);
+function formatBranch(pattern, deliveryId, taskId) {
+  return pattern
+    .replace(/<DELIVERY_ID>/g, deliveryId)
+    .replace(/<TASK_ID>/g, taskId)
+    .replace(/[^A-Za-z0-9._/-]+/g, "-");
+}
+
+function checkoutBranch(repo, branchName) {
+  const current = run(repo, "git", ["branch", "--show-current"]);
+  if (current.ok && current.stdout.trim() === branchName) return;
+  const existing = run(repo, "git", ["checkout", branchName]);
+  if (existing.ok) return;
+  runRequired(repo, "git", ["checkout", "-b", branchName], `failed to create branch ${branchName}`);
+}
+
+function runTest(repo, command) {
+  if (!command) return { passed: true, output: "No test command provided.", summary: "no test command" };
+  const result = spawnSync(command, {
+    cwd: repo,
+    shell: true,
+    encoding: "utf8",
+    timeout: 120000,
+    maxBuffer: 10 * 1024 * 1024
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`.trim() || `(exit ${result.status})`;
+  return {
+    passed: result.status === 0,
+    output,
+    summary: result.status === 0 ? "passed" : `exit ${result.status === null ? "unknown" : result.status}`
+  };
+}
+
+function writeTestOutput(runDir, taskId, output) {
+  const outputDir = path.join(runDir, "test-output");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const fileName = `${taskId.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "task"}.log`;
+  fs.writeFileSync(path.join(outputDir, fileName), `${output}\n`);
+  return `test-output/${fileName}`;
+}
+
+function ensureMergeRequest(repo, options) {
+  const existing = run(repo, "gh", ["pr", "view", "--head", options.branchName, "--json", "number,url,state"]);
+  if (existing.ok) {
+    const parsed = parseJson(existing.stdout);
+    if (parsed && parsed.url) {
+      return { ok: true, url: parsed.url, number: parsed.number, evidence: [`found MR #${parsed.number}`] };
+    }
+  }
+
+  const title = `[${options.deliveryId}] ${options.taskId}: ${options.task.title || options.taskId}`;
+  const bodyFile = writePrBody(repo, options);
+  const created = run(repo, "gh", [
+    "pr", "create",
+    "--title", title,
+    "--body-file", bodyFile,
+    "--head", options.branchName,
+    "--base", options.targetBranch,
+    "--json", "number,url"
+  ]);
+  fs.rmSync(bodyFile, { force: true });
+
+  if (!created.ok) return { ok: false, url: "", number: "", evidence: [], error: created.stderr || created.stdout || created.error };
+  const parsed = parseJson(created.stdout);
+  if (!parsed || !parsed.url) return { ok: false, url: "", number: "", evidence: [], error: "gh pr create did not return a URL" };
+  return { ok: true, url: parsed.url, number: parsed.number, evidence: [`created MR #${parsed.number}`] };
+}
+
+function writePrBody(repo, options) {
+  const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
+  const fallback = `Task: ${options.taskId}\n\n${options.task.description || ""}\n`;
+  const body = fs.existsSync(templatePath)
+    ? fs.readFileSync(templatePath, "utf8")
+      .replace(/<TASK_ID>/g, options.taskId)
+      .replace(/<DELIVERY_ID>/g, options.deliveryId)
+    : fallback;
+  const file = path.join(repo, `.agent-spec-ops-${options.taskId}-mr.md`);
+  fs.writeFileSync(file, body);
+  return file;
+}
+
+function commentMergeRequest(repo, prRef, details) {
+  const body = [
+    `Harness test status: ${details.status}`,
+    "",
+    `Task: ${details.taskId}`,
+    `Command: ${details.command}`,
+    `Evidence: ${details.evidence}`,
+    `Summary: ${details.summary}`
+  ].join("\n");
+  const result = run(repo, "gh", ["pr", "comment", String(prRef), "--body", body]);
+  if (!result.ok) return { ok: false, url: "", evidence: [], error: result.stderr || result.stdout || result.error };
+  return { ok: true, url: result.stdout.trim(), evidence: [`commented MR status ${details.status}`] };
+}
+
+function mergeMergeRequest(repo, prRef, policy) {
+  const existing = inspectMergeRequest(repo, prRef);
+  if (existing.ok && existing.merged) return existing;
+  if (policy.auto_merge_default === false) {
+    return {
+      ok: false,
+      attempted: false,
+      commit: "",
+      evidence: [],
+      checkEvidence: [],
+      checksPassed: false,
+      disabledReason: policy.auto_merge_disabled_reason || "auto_merge_default=false",
+      error: policy.auto_merge_disabled_reason || "auto merge disabled by git policy"
+    };
+  }
+
+  const immediate = run(repo, "gh", ["pr", "merge", String(prRef), "--squash", "--delete-branch"], { timeout: 60000 });
+  const mergeEvidence = [];
+  if (immediate.ok) {
+    mergeEvidence.push("gh pr merge accepted");
+  } else if (policy.auto_merge_requires_checks !== false) {
+    const automatic = run(repo, "gh", ["pr", "merge", String(prRef), "--squash", "--auto", "--delete-branch"], { timeout: 60000 });
+    if (!automatic.ok) {
+      return {
+        ok: false,
+        attempted: true,
+        commit: "",
+        evidence: [],
+        checkEvidence: [],
+        checksPassed: false,
+        error: automatic.stderr || automatic.stdout || automatic.error || immediate.stderr || immediate.stdout || immediate.error || "gh pr merge failed"
+      };
+    }
+    mergeEvidence.push("gh pr merge --auto accepted");
+  } else {
+    return {
+      ok: false,
+      attempted: true,
+      commit: "",
+      evidence: [],
+      checkEvidence: [],
+      checksPassed: false,
+      error: immediate.stderr || immediate.stdout || immediate.error || "gh pr merge failed"
+    };
+  }
+
+  const updated = inspectMergeRequest(repo, prRef);
+  if (updated.ok && updated.merged) {
+    return {
+      ...updated,
+      attempted: true,
+      evidence: [...new Set([...mergeEvidence, ...updated.evidence])]
+    };
+  }
+  return {
+    ok: false,
+    attempted: true,
+    commit: "",
+    evidence: mergeEvidence,
+    checkEvidence: updated.checkEvidence || [],
+    checksPassed: updated.checksPassed || false,
+    error: mergeEvidence.some((item) => item.includes("--auto"))
+      ? "auto-merge enabled but the MR is not merged yet"
+      : "merge command finished but the MR is not merged"
+  };
+}
+
+function inspectMergeRequest(repo, prRef) {
+  const result = run(repo, "gh", ["pr", "view", String(prRef), "--json", "number,url,state,mergeCommit,statusCheckRollup"]);
+  if (!result.ok) {
+    return { ok: false, merged: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: result.stderr || result.stdout || result.error };
+  }
+  const parsed = parseJson(result.stdout);
+  if (!parsed) {
+    return { ok: false, merged: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "gh pr view did not return JSON" };
+  }
+  const state = String(parsed.state || "").toUpperCase();
+  const commit = parsed.mergeCommit && (parsed.mergeCommit.oid || parsed.mergeCommit.abbreviatedOid)
+    ? String(parsed.mergeCommit.oid || parsed.mergeCommit.abbreviatedOid)
+    : "";
+  const merged = state === "MERGED" && Boolean(commit);
+  const checkEvidence = checkEvidenceFor(parsed.statusCheckRollup);
+  return {
+    ok: merged,
+    attempted: false,
+    merged,
+    commit,
+    evidence: merged ? [`merged MR ${parsed.url}`, `merge commit ${commit}`] : [],
+    checkEvidence,
+    checksPassed: merged || checksPassed(parsed.statusCheckRollup),
+    error: merged ? "" : `MR state is ${state || "unknown"}`
+  };
+}
+
+function checkEvidenceFor(rollup) {
+  if (!Array.isArray(rollup) || !rollup.length) return ["no required provider checks reported"];
+  return rollup.map((check) => {
+    const name = check.name || check.workflowName || check.context || check.__typename || "check";
+    const conclusion = check.conclusion || check.state || check.status || "unknown";
+    return `${name}: ${conclusion}`;
+  });
+}
+
+function checksPassed(rollup) {
+  if (!Array.isArray(rollup) || !rollup.length) return true;
+  return rollup.every((check) => {
+    const value = String(check.conclusion || check.state || check.status || "").toUpperCase();
+    return ["SUCCESS", "COMPLETED", "PASSED", "NEUTRAL", "SKIPPED"].includes(value);
+  });
+}
+
+function runRequired(cwd, command, args, message) {
+  const result = run(cwd, command, args);
+  if (!result.ok) fail(`${message}: ${result.stderr || result.stdout || result.error}`);
+  return result;
+}
+
+function run(cwd, command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    timeout: options.timeout || 30000,
+    maxBuffer: 10 * 1024 * 1024
+  });
+  return {
+    ok: result.status === 0,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : ""
+  };
+}
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}

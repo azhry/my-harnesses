@@ -43,16 +43,24 @@ fs.mkdirSync(projectRepo, { recursive: true });
 fs.writeFileSync(agentsPath, next);
 console.log(`Generated project AGENTS.md: ${agentsPath}`);
 
+const openCodeFiles = writeOpenCodeAdapterFiles();
+for (const file of openCodeFiles) {
+  console.log(`Generated OpenCode adapter: ${file}`);
+}
+
 appendEvent(statePath, {
   type: "artifact_generated",
   actor: "agent",
   role_context: "orchestrator",
   target: slash(path.relative(harnessRoot, agentsPath)),
   summary: `Generated project AGENTS.md for ${deliveryId}`,
-  details: `Updated managed agent-spec-ops context block in ${agentsPath}`,
+  details: `Updated managed agent-spec-ops context block and OpenCode adapters in ${projectRepo}`,
   severity: "info",
   tags: ["artifact", "project-agents", deliveryId],
-  evidence: [slash(path.relative(harnessRoot, agentsPath))]
+  evidence: [
+    slash(path.relative(harnessRoot, agentsPath)),
+    ...openCodeFiles.map((file) => slash(path.relative(harnessRoot, file)))
+  ]
 });
 
 function buildManagedBlock(includeTitle) {
@@ -87,24 +95,50 @@ function buildManagedBlock(includeTitle) {
   lines.push(`cd ${harnessRel}`);
   lines.push(`node scripts/read-context.js ${stateRelFromHarness} --role ${role}`);
   lines.push(`node scripts/read-instructions.js ${stateRelFromHarness} --role ${role}`);
+  lines.push(`node scripts/validate-state.js ${stateRelFromHarness}`);
   lines.push("```");
   lines.push("");
   lines.push("If a transition script reports stale context, rerun the two commands above.");
   lines.push("");
   lines.push("### Non-Negotiable Workflow");
   lines.push("");
+  lines.push("- Do not treat a user prompt as direct coding work while this run is active.");
+  lines.push("- If the user requests rework, stop implementation and route back to `task_breakdown`.");
   lines.push("- Do not keep task, gate, credential, or design knowledge only in chat.");
   lines.push("- Do not edit `workflow-state.json` directly.");
-  lines.push("- Use `record-event.js --set` for state field updates.");
+  lines.push("- Do not use generic state-field mutation for status, task, gate, or lease updates.");
+  lines.push("- Use `record-event.js` only for evidence, decisions, blockers, and corrections.");
   lines.push("- Use `transition.js` for top-level state transitions.");
   lines.push("- Use `transition-task.js` for task status transitions.");
   lines.push("- Use Linear as the task system of record when `LINEAR_API_KEY` is configured.");
-  lines.push("- Before delivery-plan review, every task must have a Linear issue ID.");
-  lines.push("- Do not create local `task-breakdown.md` when Linear is available.");
+  lines.push("- Before implementation, every task must have a Linear issue ID.");
+  lines.push("- Dev tasks require test evidence, pushed branch, MR URL, passed MR status comment, and merged MR evidence before `verified`.");
+  lines.push("- After test failure, return to dev. After three dev/test loops, stop and ask the user to intervene.");
+  lines.push("- Orchestrator may not edit project files or run dev/test directly during implementation.");
+  lines.push("- Task transitions require a matching recorded subagent lease from `record-agent-spawn.js`.");
+  lines.push("- Test results require `testing` status and a matching test-agent lease.");
+  lines.push("- `submit-task.js` refuses unrelated dirty files instead of staging the whole worktree.");
+  lines.push("- Do not create a recurring spawn watcher unless a human explicitly asks for unattended background orchestration.");
+  lines.push("");
+  lines.push("### Agent Dispatch");
+  lines.push("");
+  lines.push("When `agent_dispatch.spawn_requests[]` contains planned requests:");
+  lines.push("");
+  lines.push("- Use the available multi-agent spawn tool with the exact request prompt, then record the real returned/visible runtime id with `record-agent-spawn.js`.");
+  lines.push("- Never invent, synthesize, or reuse subagent/session ids for leases.");
+  lines.push("");
+  lines.push("Useful commands:");
+  lines.push("");
+  lines.push("```bash");
+  lines.push(`cd ${harnessRel}`);
+  lines.push(`node scripts/read-context.js ${stateRelFromHarness} --role orchestrator`);
+  lines.push(`node scripts/plan-agent-dispatch.js ${stateRelFromHarness} --enable-auto`);
+  lines.push(`node scripts/record-agent-spawn.js ${stateRelFromHarness} <SPAWN_ID> <AGENT_ID>`);
+  lines.push("```");
   lines.push("");
   lines.push("### Linear Task Creation");
   lines.push("");
-  lines.push("Create or update `task_graph.tasks[]` in state, then sync to Linear:");
+  lines.push("Create task breakdown entries through the harness flow, then sync to Linear:");
   lines.push("");
   lines.push("```bash");
   lines.push(`cd ${harnessRel}`);
@@ -112,8 +146,7 @@ function buildManagedBlock(includeTitle) {
   lines.push(`node scripts/validate-state.js ${stateRelFromHarness}`);
   lines.push("```");
   lines.push("");
-  lines.push("If task graph state is missing, stop and create it through the harness state");
-  lines.push("mutation path before attempting Linear sync.");
+  lines.push("If task graph state is missing, stop and return to `task_breakdown` before attempting Linear sync.");
   lines.push("");
   lines.push("### Design Assets");
   lines.push("");
@@ -148,6 +181,13 @@ function buildManagedBlock(includeTitle) {
   lines.push(`node scripts/check-write-scope.js ${stateRelFromHarness} <TARGET_PATH> ${role}`);
   lines.push("```");
   lines.push("");
+  lines.push("Tests must be recorded by the matching test role after the task enters `testing`:");
+  lines.push("");
+  lines.push("```bash");
+  lines.push(`cd ${harnessRel}`);
+  lines.push(`node scripts/record-test-results.js ${stateRelFromHarness} --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --mr-comment-evidence "posted passed status" --merged --merge-commit "<SHA>" --merge-evidence "MR merged"`);
+  lines.push("```");
+  lines.push("");
   lines.push("### Current Tasks");
   lines.push("");
   if (tasks.length) {
@@ -166,7 +206,7 @@ function buildManagedBlock(includeTitle) {
   if (knowledge.length) {
     for (const item of knowledge) lines.push(`- ${item}`);
   } else {
-    lines.push(`- Query knowledge from the harness: \`cd ${harnessRel} && node scripts/query-knowledge.js ${stateRelFromHarness}\``);
+    lines.push("- No promoted knowledge cards are recorded yet.");
   }
   lines.push("");
   lines.push("Record durable project learning with:");
@@ -205,6 +245,230 @@ function mergeManagedBlock(existing, managed) {
     return [before, managedBody, after].filter(Boolean).join("\n\n").replace(/\n{3,}/g, "\n\n") + "\n";
   }
   return `${existing.replace(/\s+$/, "")}\n\n${managed}\n`;
+}
+
+function writeOpenCodeAdapterFiles() {
+  const files = openCodeAdapterFiles();
+  const written = [];
+  for (const [relativeFile, content] of Object.entries(files)) {
+    const target = path.join(projectRepo, relativeFile);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+    written.push(target);
+  }
+  return written;
+}
+
+function openCodeAdapterFiles() {
+  return {
+    ".opencode/agents/agent-spec-orchestrator.md": openCodeAgent("orchestrator", {
+      title: "Agent Spec Ops Orchestrator",
+      description: `Route ${title} delivery work through the compact Agent Spec Ops harness without editing project files.`,
+      permission: ["  edit: deny"],
+      body: [
+        "You are the harness orchestrator. Do not implement code directly.",
+        "",
+        requiredStart("orchestrator"),
+        "",
+        "Rules:",
+        "",
+        "- Do not edit project files.",
+        "- Do not run frontend/backend dev or test work yourself.",
+        "- If the user requests rework, route back to `task_breakdown`; do not patch code first.",
+        "- Use `plan-agent-dispatch.js --enable-auto` to create planned spawn requests.",
+        "- Invoke only the matching OpenCode subagent for each planned request.",
+        "- After OpenCode creates a child session, record only the real visible child session id with `record-agent-spawn.js`.",
+        "- If OpenCode does not expose a real child session id, stop and report that the spawn cannot be safely leased.",
+        "- Never invent synthetic ids or fake leases."
+      ]
+    }),
+    ".opencode/agents/agent-spec-frontend-dev.md": openCodeAgent("frontend_dev", {
+      title: "Agent Spec Ops Frontend Dev",
+      description: `Implement assigned ${title} frontend tasks through Agent Spec Ops with scoped file writes only.`,
+      permission: ["  edit: allow", "  bash: allow"],
+      body: [
+        "You implement one assigned frontend task. Do not take unrelated work.",
+        "",
+        requiredStart("frontend_dev"),
+        "",
+        beforeWrite("frontend_dev"),
+        "",
+        "Rules:",
+        "",
+        "- Only edit paths allowed by the assigned frontend task scope.",
+        "- Do not edit backend files.",
+        "- Do not edit `workflow-state.json` directly.",
+        "- Use `transition-task.js` for task status.",
+        "- Do not record test results as frontend_dev; hand off to `agent-spec-frontend-test`.",
+        "- If the task has no Linear id or no active frontend_dev lease, stop."
+      ]
+    }),
+    ".opencode/agents/agent-spec-frontend-test.md": openCodeAgent("frontend_test", {
+      title: "Agent Spec Ops Frontend Test",
+      description: `Verify assigned ${title} frontend tasks and record MR/test evidence through Agent Spec Ops.`,
+      permission: ["  edit: deny"],
+      body: [
+        "You verify one assigned frontend task. Do not implement fixes.",
+        "",
+        requiredStart("frontend_test"),
+        "",
+        "Rules:",
+        "",
+        "- Run only relevant frontend tests and visual checks required by the task.",
+        "- Record pass/fail evidence with `record-test-results.js --role frontend_test`.",
+        "- Add the required passed/failed status comment to the MR when an MR exists.",
+        "- A passed task is not verified until the task MR is merged and merge evidence is recorded.",
+        "- If tests fail, transition the task to `failed` and return it to frontend_dev.",
+        "- If the dev/test loop reaches 3 attempts, stop and ask the user to intervene.",
+        "- Do not edit project files except user-approved test artifact updates."
+      ]
+    }),
+    ".opencode/agents/agent-spec-backend-dev.md": openCodeAgent("backend_dev", {
+      title: "Agent Spec Ops Backend Dev",
+      description: `Implement assigned ${title} backend tasks through Agent Spec Ops with scoped file writes only.`,
+      permission: ["  edit: allow", "  bash: allow"],
+      body: [
+        "You implement one assigned backend task. Do not take unrelated work.",
+        "",
+        requiredStart("backend_dev"),
+        "",
+        beforeWrite("backend_dev"),
+        "",
+        "Rules:",
+        "",
+        "- Only edit paths allowed by the assigned backend task scope.",
+        "- Do not edit frontend files unless the task explicitly includes a contract update.",
+        "- Do not edit `workflow-state.json` directly.",
+        "- Use `transition-task.js` for task status.",
+        "- Do not record test results as backend_dev; hand off to `agent-spec-backend-test`.",
+        "- If the task has no Linear id or no active backend_dev lease, stop."
+      ]
+    }),
+    ".opencode/agents/agent-spec-backend-test.md": openCodeAgent("backend_test", {
+      title: "Agent Spec Ops Backend Test",
+      description: `Verify assigned ${title} backend tasks and record MR/test evidence through Agent Spec Ops.`,
+      permission: ["  edit: deny"],
+      body: [
+        "You verify one assigned backend task. Do not implement fixes.",
+        "",
+        requiredStart("backend_test"),
+        "",
+        "Rules:",
+        "",
+        "- Run only relevant backend tests required by the task.",
+        "- Record pass/fail evidence with `record-test-results.js --role backend_test`.",
+        "- Add the required passed/failed status comment to the MR when an MR exists.",
+        "- A passed task is not verified until the task MR is merged and merge evidence is recorded.",
+        "- If tests fail, transition the task to `failed` and return it to backend_dev.",
+        "- If the dev/test loop reaches 3 attempts, stop and ask the user to intervene.",
+        "- Do not edit project files except user-approved test artifact updates."
+      ]
+    }),
+    ".opencode/agents/agent-spec-pr-reviewer.md": openCodeAgent("frontend_test", {
+      title: "Agent Spec Ops MR Status Reviewer",
+      description: `Review ${title} task evidence and MR status for the compact Agent Spec Ops harness.`,
+      permission: ["  edit: deny"],
+      body: [
+        "You review a single task or merge request for harness evidence.",
+        "",
+        requiredStart("<TEST_ROLE>"),
+        "",
+        "Rules:",
+        "",
+        "- Do not edit project files as reviewer.",
+        "- Do not merge the MR unless this reviewer was explicitly assigned merge ownership by the harness/user.",
+        "- Do not edit `workflow-state.json` directly.",
+        "- Prioritize correctness, regressions, missing tests, scope drift, and definition-of-done gaps.",
+        "- Leave a clear MR comment with `passed` or `failed` status when review/test status is known.",
+        "- Record evidence with `record-test-results.js --role <TEST_ROLE>`.",
+        "- Never claim the task is complete unless the harness command succeeds."
+      ]
+    }),
+    ".opencode/commands/agent-spec-spawn.md": openCodeSpawnCommand()
+  };
+}
+
+function openCodeAgent(roleName, options) {
+  const permissionLines = options.permission && options.permission.length
+    ? ["permission:", ...options.permission]
+    : [];
+  return [
+    "---",
+    `description: ${options.description}`,
+    "mode: subagent",
+    "temperature: 0.1",
+    ...permissionLines,
+    "---",
+    "",
+    `# ${options.title}`,
+    "",
+    "<!-- agent-spec-ops:opencode-managed -->",
+    "",
+    ...options.body,
+    ""
+  ].join("\n");
+}
+
+function requiredStart(roleName) {
+  return [
+    "Required start:",
+    "",
+    "```bash",
+    `cd ${harnessRel}`,
+    `node scripts/read-context.js ${stateRelFromHarness} --role ${roleName}`,
+    `node scripts/read-instructions.js ${stateRelFromHarness} --role ${roleName}`,
+    `node scripts/validate-state.js ${stateRelFromHarness}`,
+    "```"
+  ].join("\n");
+}
+
+function beforeWrite(roleName) {
+  return [
+    "Before each project edit:",
+    "",
+    "```bash",
+    `cd ${harnessRel}`,
+    `node scripts/check-write-scope.js ${stateRelFromHarness} <TARGET_PATH> ${roleName}`,
+    "```"
+  ].join("\n");
+}
+
+function openCodeSpawnCommand() {
+  return [
+    "---",
+    "description: Service compact Agent Spec Ops dispatch requests through the OpenCode harness orchestrator.",
+    "agent: agent-spec-orchestrator",
+    "---",
+    "",
+    "<!-- agent-spec-ops:opencode-managed -->",
+    "",
+    "# Agent Spec Ops Dispatch",
+    "",
+    "Use this command only for the compact harness. It must run through the `agent-spec-orchestrator` OpenCode agent.",
+    "",
+    "Steps:",
+    "",
+    "1. Recover and validate context.",
+    "2. Run dispatch planning if needed.",
+    "3. Inspect `agent_dispatch.spawn_requests[]`.",
+    "4. Invoke the matching OpenCode subagent from `.opencode/agents/` with the exact request prompt.",
+    "5. Record only the real OpenCode child session id with `record-agent-spawn.js`.",
+    "6. If no real child session id is visible, stop and ask the user to intervene.",
+    "",
+    "Never invent synthetic ids, fake leases, or manual workflow-state updates.",
+    "",
+    "Useful commands:",
+    "",
+    "```bash",
+    `cd ${harnessRel}`,
+    `node scripts/read-context.js ${stateRelFromHarness} --role orchestrator`,
+    `node scripts/read-instructions.js ${stateRelFromHarness} --role orchestrator`,
+    `node scripts/validate-state.js ${stateRelFromHarness}`,
+    `node scripts/plan-agent-dispatch.js ${stateRelFromHarness} --enable-auto`,
+    `node scripts/record-agent-spawn.js ${stateRelFromHarness} <SPAWN_REQUEST_ID> <REAL_OPENCODE_SESSION_ID>`,
+    "```",
+    ""
+  ].join("\n");
 }
 
 function taskScopeRows(items) {

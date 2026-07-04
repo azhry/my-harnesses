@@ -13,51 +13,34 @@ const requiredFiles = [
   "README.md",
   "harness.yaml",
   "harness-policy.json",
-  ".agent-spec-ops.secrets.env.example",
   "package.json",
-  "history/evals.csv",
-  "history/remarks.csv",
-  "history/token-usage.csv",
-  "knowledge/cards/.gitkeep",
-  "docs/workflow.md",
   "docs/agent-boot.md",
-  "docs/usage.md",
-  "docs/state-size.md",
+  "docs/workflow.md",
+  "docs/state-transitions.md",
+  "docs/state-machine.svg",
   "docs/roles.md",
   "docs/human-gates.md",
-  "docs/tool-readiness.md",
-  "docs/measurement.md",
-  "docs/agent-dispatch.md",
   "docs/knowledge-discovery.md",
-  "docs/local-memory.md",
-  "docs/monitor-ui.md",
-  "docs/loops.md",
-  "docs/verification.md",
   "docs/design-assembly.md",
+  "docs/git-lifecycle.md",
+  "docs/agent-dispatch.md",
+  "docs/monitor-ui.md",
   "schemas/workflow-state.schema.json",
   "schemas/event.schema.json",
   "schemas/knowledge-card.schema.json",
-  "schemas/local-tasks.schema.json",
-  "schemas/token-usage.schema.json",
   "templates/workflow-state.json",
-  "templates/tasks.json",
-  "templates/evals.csv",
-  "templates/remarks.csv",
-  "templates/token-usage.csv",
-  "ui/monitor/index.html",
-  "ui/monitor/styles.css",
-  "ui/monitor/app.js",
-  "templates/tool-readiness-report.md",
   "templates/product-requirements.md",
   "templates/stitch-ui-prompt.md",
+  "templates/ui-design-spec.md",
   "templates/system-rules.md",
   "templates/task-breakdown.md",
-  "templates/knowledge-discovery-report.md",
+  "templates/pull-request-template.md",
   "templates/frontend-test-plan.md",
   "templates/backend-test-plan.md",
   "templates/failure-report.md",
-  "templates/handoff-report.md",
-  "examples/workflow-state.example.json",
+  "ui/monitor/index.html",
+  "ui/monitor/styles.css",
+  "ui/monitor/app.js",
   "scripts/lib/state-machine.js",
   "scripts/lib/memory-store.js",
   "scripts/lib/monitor-data.js",
@@ -66,89 +49,54 @@ const requiredFiles = [
   "scripts/new-delivery.js",
   "scripts/check-tool-readiness.js",
   "scripts/fetch-stitch-designs.js",
-  "scripts/check-contracts.js",
-  "scripts/check-scope.js",
   "scripts/plan-agent-dispatch.js",
   "scripts/record-agent-spawn.js",
   "scripts/record-event.js",
   "scripts/record-knowledge.js",
-  "scripts/promote-knowledge.js",
-  "scripts/query-knowledge.js",
-  "scripts/record-eval.js",
-  "scripts/record-remark.js",
-  "scripts/record-token-usage.js",
+  "scripts/record-test-results.js",
   "scripts/submit-task.js",
-  "scripts/update-local-task.js",
   "scripts/monitor-runs.js",
+  "scripts/read-context.js",
   "scripts/read-instructions.js",
-  "scripts/compact-state.js",
   "scripts/enforce-policy.js",
   "scripts/transition.js",
+  "scripts/transition-task.js",
+  "scripts/enforce-git-lifecycle.js",
   "scripts/generate-project-agents.js",
+  "scripts/sync-linear-task.js",
+  "scripts/reopen-delivery.js",
+  "scripts/check-write-scope.js",
+  "scripts/check-harness-integrity.js",
+  "scripts/check-linear-connectivity.js",
+  "scripts/verify-integration.js",
   "scripts/validate-state.js"
+];
+
+const scriptFiles = requiredFiles.filter((file) => file.startsWith("scripts/") && file.endsWith(".js"));
+const jsonFiles = [
+  "templates/workflow-state.json",
+  "schemas/workflow-state.schema.json",
+  "schemas/event.schema.json",
+  "schemas/knowledge-card.schema.json",
+  "package.json",
+  "harness-policy.json"
 ];
 
 const errors = [];
 
 for (const relative of requiredFiles) {
-  const file = path.join(root, relative);
-  if (!fs.existsSync(file)) {
-    errors.push(`Missing required file: ${relative}`);
-  }
+  if (!fs.existsSync(path.join(root, relative))) errors.push(`Missing required file: ${relative}`);
 }
 
-for (const relative of [
-  "scripts/lib/state-machine.js",
-  "scripts/lib/memory-store.js",
-  "scripts/lib/monitor-data.js",
-  "scripts/lib/env-loader.js",
-  "scripts/lib/policy.js",
-  "scripts/new-delivery.js",
-  "scripts/check-tool-readiness.js",
-  "scripts/fetch-stitch-designs.js",
-  "scripts/check-contracts.js",
-  "scripts/check-scope.js",
-  "scripts/plan-agent-dispatch.js",
-  "scripts/record-agent-spawn.js",
-  "scripts/record-event.js",
-  "scripts/record-knowledge.js",
-  "scripts/promote-knowledge.js",
-  "scripts/query-knowledge.js",
-  "scripts/record-eval.js",
-  "scripts/record-remark.js",
-  "scripts/record-token-usage.js",
-  "scripts/submit-task.js",
-  "scripts/update-local-task.js",
-  "scripts/monitor-runs.js",
-  "scripts/read-instructions.js",
-  "scripts/compact-state.js",
-  "scripts/enforce-policy.js",
-  "scripts/transition.js",
-  "scripts/generate-project-agents.js",
-  "scripts/validate-state.js",
-  "scripts/validate-harness.js"
-]) {
+for (const relative of scriptFiles) {
   const result = spawnSync(process.execPath, ["--check", path.join(root, relative)], {
     cwd: root,
     encoding: "utf8"
   });
-  if (result.status !== 0) {
-    errors.push(`${relative} failed node --check:\n${result.stderr || result.stdout}`);
-  }
+  if (result.status !== 0) errors.push(`${relative} failed node --check:\n${result.stderr || result.stdout}`);
 }
 
-for (const relative of [
-  "templates/workflow-state.json",
-  "templates/tasks.json",
-  "examples/workflow-state.example.json",
-  "schemas/workflow-state.schema.json",
-  "schemas/event.schema.json",
-  "schemas/knowledge-card.schema.json",
-  "schemas/local-tasks.schema.json",
-  "schemas/token-usage.schema.json",
-  "package.json",
-  "harness-policy.json"
-]) {
+for (const relative of jsonFiles) {
   try {
     JSON.parse(fs.readFileSync(path.join(root, relative), "utf8"));
   } catch (error) {
@@ -156,57 +104,28 @@ for (const relative of [
   }
 }
 
-const schemaPath = path.join(root, "schemas", "workflow-state.schema.json");
-if (fs.existsSync(schemaPath)) {
-  const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-  const schemaStates = schema.properties && schema.properties.current_state
-    ? schema.properties.current_state.enum || []
-    : [];
-  compareStateLists("schemas/workflow-state.schema.json current_state enum", schemaStates);
-}
-
-const harnessYamlPath = path.join(root, "harness.yaml");
-if (fs.existsSync(harnessYamlPath)) {
-  const harnessYaml = fs.readFileSync(harnessYamlPath, "utf8");
-  const match = harnessYaml.match(/state_order:\r?\n([\s\S]*?)(?:\r?\n\S|$)/);
-  const yamlStates = match
-    ? match[1].split(/\r?\n/)
-        .map((line) => line.match(/^\s*-\s*([a-z0-9_]+)/))
-        .filter(Boolean)
-        .map((lineMatch) => lineMatch[1])
-    : [];
-  compareStateLists("harness.yaml state_order", yamlStates);
-}
-
-function compareStateLists(label, candidateStates) {
-  const expected = new Set(states);
-  const actual = new Set(candidateStates);
-  const missing = states.filter((state) => !actual.has(state));
-  const extra = candidateStates.filter((state) => !expected.has(state));
-  if (missing.length || extra.length) {
-    errors.push(`${label} drifted from scripts/lib/state-machine.js. Missing: ${missing.join(", ") || "(none)"}; Extra: ${extra.join(", ") || "(none)"}`);
-  }
+const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas/workflow-state.schema.json"), "utf8"));
+const schemaStates = schema.properties.current_state.enum || [];
+const missing = states.filter((state) => !schemaStates.includes(state));
+const extra = schemaStates.filter((state) => !states.includes(state));
+if (missing.length || extra.length) {
+  errors.push(`Schema state enum drift. Missing: ${missing.join(", ") || "(none)"}; Extra: ${extra.join(", ") || "(none)"}`);
 }
 
 const validator = path.join(root, "scripts", "validate-state.js");
-for (const relative of ["templates/workflow-state.json", "examples/workflow-state.example.json"]) {
-  if (fs.existsSync(validator) && fs.existsSync(path.join(root, relative))) {
-    const result = spawnSync(process.execPath, [validator, path.join(root, relative)], {
-      cwd: root,
-      encoding: "utf8"
-    });
-    if (result.status !== 0) {
-      errors.push(`${relative} failed state validation:\n${result.stderr || result.stdout}`);
-    }
-  }
+const result = spawnSync(process.execPath, [validator, path.join(root, "templates/workflow-state.json")], {
+  cwd: root,
+  encoding: "utf8",
+  env: { ...process.env, LINEAR_API_KEY: process.env.LINEAR_API_KEY || "lin_test_12345678901234567890", LINEAR_TEAM_ID: process.env.LINEAR_TEAM_ID || "team-test" }
+});
+if (result.status !== 0) {
+  errors.push(`templates/workflow-state.json failed state validation:\n${result.stderr || result.stdout}`);
 }
 
 if (errors.length) {
   console.error("Harness validation failed:");
-  for (const error of errors) {
-    console.error(`- ${error}`);
-  }
+  for (const error of errors) console.error(`- ${error}`);
   process.exit(1);
 }
 
-console.log("OK: agent-spec-ops files, scripts, template, and example are valid");
+console.log("OK: compact agent-spec-ops harness is valid");

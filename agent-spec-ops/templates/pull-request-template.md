@@ -7,6 +7,7 @@
 - **Delivery:** <DELIVERY_ID>
 - **Task:** <TASK_ID>
 - **Description:** <task.description from workflow-state>
+- **Product requirement(s):** <requirement IDs or links>
 
 ## Changes
 
@@ -24,6 +25,20 @@
 
 1. <step-by-step instructions to verify the change>
 2. <include specific commands, URLs, payloads>
+
+## Test Agent Comment
+
+The test/review agent must add an MR comment:
+
+```text
+Status: passed|failed
+Task: <TASK_ID>
+Evidence: <test command/output or failure summary>
+```
+
+After a passed status comment, merge this task MR unless code-host policy blocks it.
+The task cannot be marked `verified` until merged MR evidence and the merge commit
+are recorded in the harness state.
 
 ## Related
 

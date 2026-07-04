@@ -53,4 +53,4 @@ const prepared = ensureRunMemory(stateFile, state);
 writeState(stateFile, prepared.state);
 
 console.log(`Created ${stateFile}`);
-console.log(`Prepared local memory and task store in ${deliveryDir}`);
+console.log(`Prepared run memory in ${deliveryDir}`);

@@ -1,77 +1,51 @@
-# Task Breakdown
+# Linear Task Template
 
-Delivery: `<DELIVERY_ID>` - `<TITLE>`
+Use this content as the body for each Linear task created during
+`task_breakdown`.
 
-> Linear fallback. When `LINEAR_API_KEY` is configured, skip this file and
-> create tasks directly in Linear via `sync-linear-task.js --create`. Use
-> this template only when Linear is unavailable.
+## Description
 
-> Task names: plain descriptions only, no RUN CODE prefixes. Write "[FE-001] Implement login"
-> not "RUN CODE: Implement login" or "FEATURE: Implement login". The task ID
-> (FE-001, BE-002) already identifies the role and sequence.
+What this task changes and why.
 
-## Task Graph Summary
+## Lane
 
-- Frontend required:
-- Backend required:
-- Dependencies checked:
+`frontend` or `backend`
 
-## Approved Scope Baseline
+## Role
 
-| Type | Values |
-| --- | --- |
-| Task IDs |  |
-| Repos |  |
-| Services |  |
-| Paths / Globs |  |
-| API Contracts |  |
+`frontend_dev`, `frontend_test`, `backend_dev`, or `backend_test`
 
-## Git Policy
+## Scope
 
-| Field | Value |
-| --- | --- |
-| Base branch | `main` |
-| Feature branch pattern | `delivery/<DELIVERY_ID>/<TASK_ID>` |
-| Push timing | After matching tests pass |
-| Merge request target | `main` |
-| Auto-merge | Enabled by default after merge checks pass unless explicitly disabled |
+- repos:
+- allowed paths:
+- out of scope:
 
-## Contract Baseline
+## Dependencies
 
-| ID | Kind | Producer Task | Consumer Task | Expected Fields |
-| --- | --- | --- | --- | --- |
-| CONTRACT-001 | api_payload | BE-001 | FE-001 | `field_name:string:required` |
+- blocks:
+- depends on:
 
-## Frontend Implementation Tasks
-
-| ID | Task | Description | Acceptance Criteria | Depends On | Feature Branch | Allowed Paths | Contract Refs | Definition Of Done | Verification |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| FE-001 |  |  |  |  | `delivery/<DELIVERY_ID>/FE-001` |  |  |  |  |
-
-## Frontend Test Tasks
-
-| ID | Task | Covers | Command / Method |
-| --- | --- | --- | --- |
-| FET-001 |  | FE-001 |  |
-
-## Backend Implementation Tasks
-
-| ID | Task | Depends On | Feature Branch | Allowed Paths | Contract Refs | Definition Of Done | Verification |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| BE-001 |  |  | `delivery/<DELIVERY_ID>/BE-001` |  |  |  |  |
-
-## Backend Test Tasks
-
-| ID | Task | Covers | Command / Method |
-| --- | --- | --- | --- |
-| BET-001 |  | BE-001 |  |
-
-## Integration Tasks
-
-| ID | Task | Depends On | Evidence |
-| --- | --- | --- | --- |
-| INT-001 |  |  |  |
-
-## Risks / Blockers
+## Definition Of Done
 
 - 
+
+## Verification / Test Plan
+
+- command:
+- expected result:
+- evidence to record:
+
+## MR Description
+
+Use `templates/pull-request-template.md`.
+
+## MR Comment Required
+
+After test/review, comment on the MR:
+
+```text
+Status: passed|failed
+Task: <TASK_ID>
+Evidence: <test output / failure summary>
+```

@@ -1,32 +1,19 @@
-# Agent Boot Packet
+# Agent Boot
 
-Read this packet after `read-context.js` and before acting.
-
-## Non-Negotiables
-
-- Run `read-context.js` after compaction, interruption, role handoff, or stale-context rejection.
-- Use `workflow-state.json` as the operational record; do not rely on chat memory.
-- Use Linear for task management and knowledge sync when policy requires it.
-- Store raw keys only in environment variables. State may store only safe metadata.
-- Long-lived local credentials may live in `.agent-spec-ops.secrets.env` at the harness root, or in `runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env` for run-specific credentials; those files are gitignored and auto-loaded by harness scripts.
-- Use transition scripts for state and task status changes.
-- Use `compact-state.js` when `workflow-state.json` becomes noisy.
-
-## Commands
+Run:
 
 ```bash
 node scripts/read-context.js runs/<DELIVERY_ID>/workflow-state.json --role <ROLE>
 node scripts/read-instructions.js runs/<DELIVERY_ID>/workflow-state.json --role <ROLE>
-node scripts/transition.js runs/<DELIVERY_ID>/workflow-state.json <STATE> "reason"
-node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> <STATUS> "reason"
-node scripts/compact-state.js runs/<DELIVERY_ID>/workflow-state.json
-node scripts/validate-harness.js
 ```
 
-## Read More Only When Needed
+Then act only through the legal next states printed by `read-instructions.js`.
 
-- State transition criteria: `docs/state-transitions.md`
-- Role details: `docs/role-<ROLE>.md`
-- Git lifecycle: `docs/git-lifecycle.md`
-- Verification: `docs/verification.md`
-- Linear sync: `docs/linear-sync.md`
+Rules:
+
+- Do not edit state status fields by hand.
+- Do not implement before `implementation_in_progress`.
+- Rework requests go to `task_breakdown`.
+- Dev and test are separate agents.
+- Frontend and backend may run in parallel.
+- If a dev/test loop reaches 3 attempts, stop and ask the user to intervene.

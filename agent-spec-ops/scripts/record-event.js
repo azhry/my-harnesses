@@ -32,13 +32,14 @@ if (!args.stateFile || !args.summary) {
     "  --component NAME  repeatable or comma-separated",
     "  --repo NAME       repeatable or comma-separated",
     "  --service NAME    repeatable or comma-separated",
-    "  --set PATH=VALUE  repeatable; updates workflow-state.json after recording the event"
+    "  --set PATH=VALUE  repeatable; metadata-only. Operational state must use dedicated harness scripts."
   ].join("\n"));
   process.exit(1);
 }
 
 try {
   enforcePolicy(args.stateFile, { phase: "event_record" });
+  validateSetExpressions(args.sets);
 } catch (error) {
   console.error(error.message);
   process.exit(1);
@@ -105,6 +106,7 @@ if (args.sets.length) {
 
 function applySet(state, expression) {
   const parsed = parseSet(expression);
+  assertSetAllowed(parsed.path);
   const segments = parsed.path.split(".");
   if (!segments.length || segments.some((segment) => segment.trim() === "")) {
     throw new Error(`Invalid --set path: ${parsed.path}`);
@@ -125,6 +127,22 @@ function applySet(state, expression) {
   }
 
   cursor[keyForSegment(segments[segments.length - 1])] = parsed.value;
+}
+
+function validateSetExpressions(expressions) {
+  for (const expression of expressions) {
+    assertSetAllowed(parseSet(expression).path);
+  }
+}
+
+function assertSetAllowed(pathExpression) {
+  const path = String(pathExpression || "").trim();
+  const allowedPrefixes = ["metadata.", "annotations.", "notes."];
+  if (allowedPrefixes.some((prefix) => path.startsWith(prefix))) return;
+  throw new Error([
+    `Refusing --set ${path}: record-event.js may not mutate operational workflow state.`,
+    "Use transition.js, transition-task.js, record-agent-spawn.js, record-test-results.js, sync-linear-task.js, or another dedicated harness script."
+  ].join(" "));
 }
 
 function parseSet(expression) {

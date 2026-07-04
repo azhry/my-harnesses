@@ -183,6 +183,7 @@
       "branch_name_pattern": "delivery/<DELIVERY_ID>/<TASK_ID>",
       "push_after_tests_pass": true,
       "merge_request_required": true,
+      "review_required_before_merge": false,
       "auto_merge_default": true,
       "auto_merge_requires_checks": true,
       "auto_merge_disabled_reason": "",
@@ -249,10 +250,10 @@
       "last_failure": "",
       "history": []
     },
-    "knowledge_improvement": {
+    "implementation": {
       "status": "not_started",
       "attempt": 0,
-      "max_attempts": 1,
+      "max_attempts": 3,
       "last_failure": "",
       "history": []
     }
@@ -266,20 +267,6 @@
     "blockers": []
   },
   "gates": {
-    "tool_readiness_review": {
-      "status": "not_ready",
-      "approver": "",
-      "approval_note": "",
-      "decided_at": "",
-      "evidence": []
-    },
-    "design_stitch": {
-      "status": "not_ready",
-      "approver": "",
-      "approval_note": "",
-      "decided_at": "",
-      "evidence": []
-    },
     "product_review": {
       "status": "not_ready",
       "approver": "",
@@ -287,14 +274,14 @@
       "decided_at": "",
       "evidence": []
     },
-    "delivery_plan_review": {
+    "system_rules_review": {
       "status": "not_ready",
       "approver": "",
       "approval_note": "",
       "decided_at": "",
       "evidence": []
     },
-    "final_review": {
+    "implementation_review": {
       "status": "not_ready",
       "approver": "",
       "approval_note": "",
@@ -303,32 +290,6 @@
     }
   },
   "human_instructions": {
-    "tool_readiness_review": {
-      "status": "not_prepared",
-      "audience": [],
-      "instructions": "",
-      "decision_options": [
-        "approve",
-        "approve_with_notes",
-        "request_changes",
-        "block"
-      ],
-      "questions": [],
-      "evidence": []
-    },
-    "design_stitch": {
-      "status": "not_prepared",
-      "audience": [],
-      "instructions": "",
-      "decision_options": [
-        "approve",
-        "approve_with_notes",
-        "request_changes",
-        "block"
-      ],
-      "questions": [],
-      "evidence": []
-    },
     "product_review": {
       "status": "not_prepared",
       "audience": [],
@@ -342,7 +303,7 @@
       "questions": [],
       "evidence": []
     },
-    "delivery_plan_review": {
+    "system_rules_review": {
       "status": "not_prepared",
       "audience": [],
       "instructions": "",
@@ -355,7 +316,7 @@
       "questions": [],
       "evidence": []
     },
-    "final_review": {
+    "implementation_review": {
       "status": "not_prepared",
       "audience": [],
       "instructions": "",
@@ -377,38 +338,22 @@
   "memory": {
     "status": "not_started",
     "events_path": "events.ndjson",
-    "local_tasks_path": "tasks.json",
-    "evals_csv_path": "evals.csv",
-    "remarks_csv_path": "remarks.csv",
-    "token_usage_csv_path": "token-usage.csv",
     "knowledge_dirs": [
       "knowledge/candidates",
       "knowledge/promoted"
     ],
     "local_task_provider": {
-      "enabled": true,
-      "mode": "local",
-      "reason": "Local task storage is always available and used when Linear/Jira is unavailable.",
-      "external_provider": "",
-      "sync_status": "local_only",
+      "enabled": false,
+      "mode": "external",
+      "reason": "Linear is the required task store.",
+      "external_provider": "linear",
+      "sync_status": "blocked",
       "last_synced_at": "",
       "path": "tasks.json"
     },
     "last_event_id": "",
     "event_count": 0,
-    "last_eval_at": "",
-    "last_remark_at": "",
     "last_knowledge_query_at": "",
-    "token_totals": {
-      "input_tokens": 0,
-      "output_tokens": 0,
-      "cached_input_tokens": 0,
-      "reasoning_tokens": 0,
-      "total_tokens": 0,
-      "total_cost_usd": 0,
-      "currency": "USD",
-      "last_recorded_at": ""
-    },
     "evidence": []
   },
   "clean_state": {
@@ -429,51 +374,6 @@
       "evidence": ""
     }
   },
-  "evaluation": {
-    "status": "not_started",
-    "completed_at": "",
-    "scorecard": {
-      "knowledge_quality": {
-        "score": null,
-        "max": 2,
-        "evidence": [],
-        "notes": ""
-      },
-      "product_quality": {
-        "score": null,
-        "max": 2,
-        "evidence": [],
-        "notes": ""
-      },
-      "task_quality": {
-        "score": null,
-        "max": 2,
-        "evidence": [],
-        "notes": ""
-      },
-      "implementation_alignment": {
-        "score": null,
-        "max": 2,
-        "evidence": [],
-        "notes": ""
-      },
-      "verification": {
-        "score": null,
-        "max": 2,
-        "evidence": [],
-        "notes": ""
-      },
-      "state_hygiene": {
-        "score": null,
-        "max": 2,
-        "evidence": [],
-        "notes": ""
-      }
-    },
-    "total_score": null,
-    "max_score": 12,
-    "improvement_actions": []
-  },
   "log": [
     {
       "at": "2026-06-19T02:16:50.231Z",
@@ -482,13 +382,13 @@
     },
     {
       "at": "2026-06-19T02:16:55.814Z",
-      "state": "waiting_for_tool_readiness_review",
-      "note": "Ready, awaiting human approval"
+      "state": "knowledge_discovery",
+      "note": "Tool readiness complete"
     },
     {
       "at": "2026-06-19T02:17:00.498Z",
-      "state": "tool_readiness_revision",
-      "note": "Need to re-check docker"
+      "state": "product_requirements",
+      "note": "Knowledge discovery complete"
     }
   ]
 }

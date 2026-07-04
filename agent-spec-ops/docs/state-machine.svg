@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="920" viewBox="0 0 1280 920" role="img" aria-labelledby="title desc">
+  <title id="title">Agent Spec Ops State Machine</title>
+  <desc id="desc">End-to-end harness workflow from intake to done, with human review gates, rework paths, parallel frontend and backend implementation lanes, test failure loops, and task-level merge before verification.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1d2733"/>
+    </marker>
+    <marker id="warnArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#d0473d"/>
+    </marker>
+    <style>
+      .bg{fill:#0d0f12}
+      .panel{fill:#151922;stroke:#536170;stroke-width:2}
+      .node{fill:#f8fafc;stroke:#1d2733;stroke-width:2}
+      .gate{fill:#fff3cf;stroke:#b16a00;stroke-width:2}
+      .work{fill:#e9f0ff;stroke:#315bb8;stroke-width:2}
+      .done{fill:#e6f7ed;stroke:#16833a;stroke-width:2}
+      .warn{fill:#ffe8e5;stroke:#d0473d;stroke-width:2}
+      .edge{fill:none;stroke:#d8e2ee;stroke-width:2.2;marker-end:url(#arrow)}
+      .edgeWarn{fill:none;stroke:#ff9b91;stroke-width:2.2;stroke-dasharray:7 5;marker-end:url(#warnArrow)}
+      .txt{font:700 14px Arial,sans-serif;fill:#111827;text-anchor:middle;dominant-baseline:middle}
+      .small{font:600 11px Arial,sans-serif;fill:#3d4653;text-anchor:middle}
+      .darkTitle{font:800 16px Arial,sans-serif;fill:#f1f5f9;text-anchor:middle}
+      .darkSmall{font:600 12px Arial,sans-serif;fill:#aeb9c8;text-anchor:middle}
+      .label{font:700 12px Arial,sans-serif;fill:#d8e2ee;text-anchor:middle}
+      .labelWarn{font:700 12px Arial,sans-serif;fill:#ffb5ae;text-anchor:middle}
+    </style>
+  </defs>
+
+  <rect class="bg" width="1280" height="920"/>
+
+  <rect class="node" x="30" y="55" width="150" height="54" rx="7"/>
+  <text class="txt" x="105" y="82">intake</text>
+
+  <rect class="node" x="215" y="55" width="170" height="54" rx="7"/>
+  <text class="txt" x="300" y="82">tool_readiness</text>
+
+  <rect class="node" x="420" y="55" width="210" height="54" rx="7"/>
+  <text class="txt" x="525" y="82">knowledge_discovery</text>
+
+  <rect class="node" x="665" y="55" width="210" height="54" rx="7"/>
+  <text class="txt" x="770" y="82">product_requirements</text>
+
+  <rect class="gate" x="910" y="50" width="220" height="64" rx="7"/>
+  <text class="txt" x="1020" y="73">product_review</text>
+  <text class="small" x="1020" y="94">human gate</text>
+
+  <rect class="node" x="665" y="180" width="210" height="54" rx="7"/>
+  <text class="txt" x="770" y="207">design_assembly</text>
+
+  <rect class="node" x="910" y="180" width="220" height="54" rx="7"/>
+  <text class="txt" x="1020" y="207">system_rules</text>
+
+  <rect class="gate" x="910" y="300" width="220" height="64" rx="7"/>
+  <text class="txt" x="1020" y="323">system_rules_review</text>
+  <text class="small" x="1020" y="344">human gate</text>
+
+  <rect class="node" x="665" y="305" width="210" height="54" rx="7"/>
+  <text class="txt" x="770" y="332">task_breakdown</text>
+
+  <rect class="panel" x="30" y="430" width="1220" height="290" rx="10"/>
+  <text class="darkTitle" x="640" y="460">implementation_in_progress</text>
+  <text class="darkSmall" x="640" y="480">frontend and backend may run in parallel; dev and test are separate agents</text>
+
+  <rect class="work" x="70" y="525" width="120" height="48" rx="6"/>
+  <text class="txt" x="130" y="549">frontend_dev</text>
+  <rect class="work" x="235" y="525" width="120" height="48" rx="6"/>
+  <text class="txt" x="295" y="549">frontend_test</text>
+  <rect class="work" x="400" y="525" width="120" height="48" rx="6"/>
+  <text class="txt" x="460" y="549">push</text>
+  <rect class="work" x="565" y="525" width="120" height="48" rx="6"/>
+  <text class="txt" x="625" y="549">MR</text>
+  <rect class="work" x="730" y="525" width="150" height="48" rx="6"/>
+  <text class="txt" x="805" y="543">MR comment</text>
+  <text class="small" x="805" y="561">passed/failed</text>
+  <rect class="work" x="925" y="525" width="120" height="48" rx="6"/>
+  <text class="txt" x="985" y="549">merge</text>
+
+  <rect class="work" x="70" y="625" width="120" height="48" rx="6"/>
+  <text class="txt" x="130" y="649">backend_dev</text>
+  <rect class="work" x="235" y="625" width="120" height="48" rx="6"/>
+  <text class="txt" x="295" y="649">backend_test</text>
+  <rect class="work" x="400" y="625" width="120" height="48" rx="6"/>
+  <text class="txt" x="460" y="649">push</text>
+  <rect class="work" x="565" y="625" width="120" height="48" rx="6"/>
+  <text class="txt" x="625" y="649">MR</text>
+  <rect class="work" x="730" y="625" width="150" height="48" rx="6"/>
+  <text class="txt" x="805" y="643">MR comment</text>
+  <text class="small" x="805" y="661">passed/failed</text>
+  <rect class="work" x="925" y="625" width="120" height="48" rx="6"/>
+  <text class="txt" x="985" y="649">merge</text>
+
+  <rect class="warn" x="1090" y="565" width="125" height="68" rx="7"/>
+  <text class="txt" x="1152.5" y="589">loop cap</text>
+  <text class="small" x="1152.5" y="609">3 attempts</text>
+  <text class="small" x="1152.5" y="625">user intervenes</text>
+
+  <rect class="gate" x="500" y="805" width="260" height="64" rx="7"/>
+  <text class="txt" x="630" y="828">implementation_review</text>
+  <text class="small" x="630" y="849">requirements + human gate</text>
+
+  <rect class="done" x="910" y="810" width="160" height="54" rx="7"/>
+  <text class="txt" x="990" y="837">done</text>
+
+  <path class="edge" d="M180 82 H215"/>
+  <path class="edge" d="M385 82 H420"/>
+  <path class="edge" d="M630 82 H665"/>
+  <path class="edge" d="M875 82 H910"/>
+  <path class="edge" d="M1020 114 V140 H770 V180"/>
+  <path class="edge" d="M875 207 H910"/>
+  <path class="edge" d="M1020 234 V300"/>
+  <path class="edge" d="M910 332 H875"/>
+  <path class="edge" d="M770 359 V430"/>
+
+  <path class="edge" d="M190 549 H235"/>
+  <path class="edge" d="M355 549 H400"/>
+  <path class="edge" d="M520 549 H565"/>
+  <path class="edge" d="M685 549 H730"/>
+  <path class="edge" d="M880 549 H925"/>
+  <path class="edge" d="M190 649 H235"/>
+  <path class="edge" d="M355 649 H400"/>
+  <path class="edge" d="M520 649 H565"/>
+  <path class="edge" d="M685 649 H730"/>
+  <path class="edge" d="M880 649 H925"/>
+
+  <path class="edge" d="M985 573 V700 H630 V805"/>
+  <path class="edge" d="M985 673 V700"/>
+  <text class="label" x="810" y="695">all task MRs merged + requirements mapped</text>
+  <path class="edge" d="M760 837 H910"/>
+
+  <path class="edgeWarn" d="M235 540 C170 505 120 505 100 525"/>
+  <text class="labelWarn" x="172" y="510">test failed -> dev</text>
+  <path class="edgeWarn" d="M235 640 C170 605 120 605 100 625"/>
+  <text class="labelWarn" x="172" y="610">test failed -> dev</text>
+  <path class="edgeWarn" d="M355 536 C665 500 1020 500 1090 585"/>
+  <path class="edgeWarn" d="M355 636 C675 690 1020 690 1090 620"/>
+
+  <path class="edgeWarn" d="M910 82 C790 20 555 20 525 55"/>
+  <text class="labelWarn" x="735" y="32">not passed -> knowledge discovery</text>
+  <path class="edgeWarn" d="M910 332 C810 260 760 260 770 234"/>
+  <text class="labelWarn" x="780" y="265">not passed -> design assembly</text>
+  <path class="edgeWarn" d="M500 837 C320 795 230 735 250 720"/>
+  <text class="labelWarn" x="330" y="790">not passed -> implementation</text>
+  <path class="edgeWarn" d="M500 820 C280 745 430 375 665 332"/>
+  <text class="labelWarn" x="395" y="403">rework -> task breakdown</text>
+</svg>

@@ -16,7 +16,7 @@ const SECTION_HELP = {
   "Workflow": "The full compact state machine, including rework returning to task breakdown.",
   "Run Snapshot": "Tool readiness, Linear/code-host setup, and last update time.",
   "Human Gates": "Only the three human gates: product requirements, system rules, and implementation review.",
-  "Loop Pressure": "Dev/test retry loops. Attempt 3 means the user must intervene.",
+  "Loop Pressure": "Failed dev/test retries. Attempt 3 means the user must intervene.",
   "Task Lanes": "Parallel frontend/backend implementation lanes with separate dev and test tasks.",
   "Role Board": "Current role ownership across orchestrator, PM, dev, and test agents.",
   "Requirement Verification": "Implementation evidence mapped back to product requirements before done.",

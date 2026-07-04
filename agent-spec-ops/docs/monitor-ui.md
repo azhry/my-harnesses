@@ -13,7 +13,7 @@ The monitor shows:
 - compact workflow state
 - three human gates
 - frontend/backend task lanes
-- dev/test loop pressure
+- failed dev/test retry pressure
 - subagent dispatch
 - MR/test status
 - recent events

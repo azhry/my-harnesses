@@ -240,10 +240,10 @@ if (nextStatus === "failed") {
   }
 } else if (nextStatus === "verified") {
   task.loop.status = "completed";
-  task.loop.attempt = (task.loop.attempt || 0) + 1;
+  task.loop.attempt = 0;
+  task.loop.last_failure = "";
 } else if (nextStatus === "active") {
   task.loop.status = "in_progress";
-  task.loop.attempt = (task.loop.attempt || 0) + 1;
 } else if (nextStatus === "blocked") {
   task.loop.status = "blocked";
 } else if (nextStatus === "implemented") {

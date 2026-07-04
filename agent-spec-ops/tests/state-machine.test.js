@@ -250,6 +250,8 @@ describe("transition-task.js", () => {
     const updated = loadState();
     assert.equal(updated.current_state, "implementation_in_progress");
     assert.equal(updated.task_graph.tasks[0].status, "active");
+    assert.equal(updated.task_graph.tasks[0].loop.status, "in_progress");
+    assert.equal(updated.task_graph.tasks[0].loop.attempt, 0);
   });
 
   it("rejects task execution without a recorded role lease", () => {
@@ -292,7 +294,38 @@ describe("transition-task.js", () => {
 
     const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
     assert.equal(result.exitCode, 0);
-    assert.equal(loadState().task_graph.tasks[0].status, "verified");
+    const taskAfter = loadState().task_graph.tasks[0];
+    assert.equal(taskAfter.status, "verified");
+    assert.equal(taskAfter.loop.status, "completed");
+    assert.equal(taskAfter.loop.attempt, 0);
+    assert.equal(taskAfter.loop.last_failure, "");
+  });
+
+  it("increments loop pressure only when a task fails", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const failed = runScript("transition-task.js", [statePath(), "FE-001", "failed", "unit tests failed"]);
+    assert.equal(failed.exitCode, 0);
+    let taskAfter = loadState().task_graph.tasks[0];
+    assert.equal(taskAfter.loop.status, "failed");
+    assert.equal(taskAfter.loop.attempt, 1);
+    assert.equal(taskAfter.loop.last_failure, "unit tests failed");
+
+    const retryState = loadState();
+    addLease(retryState, "FE-001", "frontend_dev", "agent-retry");
+    writeState(retryState);
+
+    const retried = runScript("transition-task.js", [statePath(), "FE-001", "active", "retry"]);
+    assert.equal(retried.exitCode, 0);
+    taskAfter = loadState().task_graph.tasks[0];
+    assert.equal(taskAfter.loop.status, "in_progress");
+    assert.equal(taskAfter.loop.attempt, 1);
   });
 
   it("blocks retry after dev/test loop reaches three attempts", () => {
@@ -302,6 +335,7 @@ describe("transition-task.js", () => {
     task.status = "failed";
     task.loop = { status: "failed", attempt: 3, max_attempts: 3, last_failure: "still failing", history: [] };
     state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
     writeState(state);
 
     const result = runScript("transition-task.js", [statePath(), "FE-001", "active", "retry"]);

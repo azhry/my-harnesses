@@ -49,8 +49,8 @@ dependencies, definition of done, verification/test plan, and MR description.
 Frontend and backend can run in parallel. Dev and test are separate agents:
 
 ```text
-frontend_dev -> frontend_test -> push -> MR -> MR comment passed/failed -> merge
-backend_dev  -> backend_test  -> push -> MR -> MR comment passed/failed -> merge
+frontend_dev -> frontend_test -> push -> MR -> MR comment -> checks pass -> merge
+backend_dev  -> backend_test  -> push -> MR -> MR comment -> checks pass -> merge
 ```
 
 If test fails, return to dev. If the dev/test loop reaches 3 attempts, stop and
@@ -63,7 +63,8 @@ Hard gates:
 - Task transitions require a recorded spawn lease from `record-agent-spawn.js` with the exact `agent-spec-*` OpenCode agent name.
 - `implemented` requires scoped changed files and implementation evidence.
 - Test results require `testing` status and a matching test-agent lease.
-- `verified` requires changed files, tests, branch, push, MR URL, passed MR status comment URL, and merged MR evidence.
+- `verified` requires changed files, tests, branch, push, MR URL, passed MR status comment URL, passed MR check evidence, and merged MR evidence.
+- Do not run raw `gh pr merge`; use `submit-task.js` so checks are inspected before merge.
 - `submit-task.js` refuses unrelated dirty files.
 - `seal-state.js` is trusted manual repair only. It refuses invalid workflow data and must not be used as normal recovery.
 
@@ -75,6 +76,6 @@ node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID>
 node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json --enable-auto
 node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>
 node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> <ROLE>
-node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --merged --merge-commit "<SHA>"
+node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --merge-check-evidence "<CHECKS_PASSED>" --merged --merge-commit "<SHA>"
 node scripts/reopen-delivery.js runs/<DELIVERY_ID>/workflow-state.json "reason"
 ```

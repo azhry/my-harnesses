@@ -121,7 +121,8 @@ function buildManagedBlock(includeTitle) {
   lines.push("- Use Linear as the task system of record when `LINEAR_API_KEY` is configured.");
   lines.push("- Before implementation, every task must have a Linear issue ID.");
   lines.push("- `implemented` requires scoped changed files and implementation evidence.");
-  lines.push("- Dev tasks require test evidence, pushed branch, MR URL, passed MR status comment, and merged MR evidence before `verified`.");
+  lines.push("- Dev tasks require test evidence, pushed branch, MR URL, passed MR status comment, passed MR check evidence, and merged MR evidence before `verified`.");
+  lines.push("- Do not run raw `gh pr merge`; use `submit-task.js` so MR checks are inspected before merge.");
   lines.push("- After test failure, return to dev. After three dev/test loops, stop and ask the user to intervene.");
   lines.push("- Orchestrator may not edit project files or run dev/test directly during implementation.");
   lines.push("- Task transitions require a matching recorded exact-agent lease from `record-agent-spawn.js --agent <AGENT_NAME>`.");
@@ -196,7 +197,7 @@ function buildManagedBlock(includeTitle) {
   lines.push("");
   lines.push("```bash");
   lines.push(`cd ${harnessRel}`);
-  lines.push(`node scripts/record-test-results.js ${stateRelFromHarness} --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --mr-comment-evidence "posted passed status" --merged --merge-commit "<SHA>" --merge-evidence "MR merged"`);
+  lines.push(`node scripts/record-test-results.js ${stateRelFromHarness} --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --mr-comment-evidence "posted passed status" --merge-check-evidence "<CHECKS_PASSED>" --merged --merge-commit "<SHA>" --merge-evidence "MR merged"`);
   lines.push("```");
   lines.push("");
   lines.push("### Current Tasks");
@@ -332,7 +333,8 @@ function openCodeAdapterFiles() {
         "- Run only relevant frontend tests and visual checks required by the task.",
         "- Record pass/fail evidence with `record-test-results.js --role frontend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",
-        "- A passed task is not verified until the task MR is merged and merge evidence is recorded.",
+        "- A passed task is not verified until the task MR checks pass, the MR is merged, and merge evidence is recorded.",
+        "- Do not run raw `gh pr merge`; use `submit-task.js` so MR checks are inspected before merge.",
         "- If tests fail, transition the task to `failed` and return it to frontend_dev.",
         "- If the dev/test loop reaches 3 attempts, stop and ask the user to intervene.",
         "- Do not edit project files except user-approved test artifact updates.",
@@ -377,7 +379,8 @@ function openCodeAdapterFiles() {
         "- Run only relevant backend tests required by the task.",
         "- Record pass/fail evidence with `record-test-results.js --role backend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",
-        "- A passed task is not verified until the task MR is merged and merge evidence is recorded.",
+        "- A passed task is not verified until the task MR checks pass, the MR is merged, and merge evidence is recorded.",
+        "- Do not run raw `gh pr merge`; use `submit-task.js` so MR checks are inspected before merge.",
         "- If tests fail, transition the task to `failed` and return it to backend_dev.",
         "- If the dev/test loop reaches 3 attempts, stop and ask the user to intervene.",
         "- Do not edit project files except user-approved test artifact updates.",
@@ -397,7 +400,7 @@ function openCodeAdapterFiles() {
         "Rules:",
         "",
         "- Do not edit project files as reviewer.",
-        "- Do not merge the MR unless this reviewer was explicitly assigned merge ownership by the harness/user.",
+        "- Do not merge the MR unless this reviewer was explicitly assigned merge ownership by the harness/user and MR checks are passed.",
         "- Do not edit `workflow-state.json` directly.",
         "- Prioritize correctness, regressions, missing tests, scope drift, and definition-of-done gaps.",
         "- Leave a clear MR comment with `passed` or `failed` status when review/test status is known.",

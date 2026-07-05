@@ -194,6 +194,9 @@ if (nextStatus === "verified") {
     if (git.merge_request_comment_url && !isMergeRequestCommentUrl(git.merge_request_url, git.merge_request_comment_url)) {
       errors.push(`${taskId}: Cannot transition to verified. MR status comment URL must point to an actual comment, not the MR itself.`);
     }
+    if (git.merge_checks_passed !== true || !Array.isArray(git.merge_check_evidence) || git.merge_check_evidence.length === 0) {
+      errors.push(`${taskId}: Cannot transition to verified. MR checks must be recorded as passed before merge/verification. Run 'node scripts/submit-task.js' and wait for code-host checks, or record explicit passed check evidence.`);
+    }
     if (git.merged !== true || !git.merge_commit || !(git.merge_evidence || []).length) {
       errors.push(`${taskId}: Cannot transition to verified. Merged MR evidence is missing. Required: git_flow.merged=true, merge_commit, and merge_evidence.`);
     }

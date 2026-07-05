@@ -356,6 +356,29 @@ function isMergeRequestCommentUrl(commentUrl) {
 function mergeMergeRequest(repo, prRef, policy) {
   const existing = inspectMergeRequest(repo, prRef);
   if (existing.ok && existing.merged) return existing;
+  if (!existing.checksPassed) {
+    const automatic = run(repo, "gh", ["pr", "merge", String(prRef), "--squash", "--auto", "--delete-branch"], { timeout: 60000 });
+    if (!automatic.ok) {
+      return {
+        ok: false,
+        attempted: true,
+        commit: "",
+        evidence: [],
+        checkEvidence: existing.checkEvidence || [],
+        checksPassed: false,
+        error: automatic.stderr || automatic.stdout || automatic.error || existing.error || "MR checks are not passed; merge refused"
+      };
+    }
+    return {
+      ok: false,
+      attempted: true,
+      commit: "",
+      evidence: ["gh pr merge --auto accepted"],
+      checkEvidence: existing.checkEvidence || [],
+      checksPassed: false,
+      error: "auto-merge enabled but MR checks have not passed yet"
+    };
+  }
   if (policy.auto_merge_default === false) {
     return {
       ok: false,
@@ -430,20 +453,23 @@ function inspectMergeRequest(repo, prRef) {
     return { ok: false, merged: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "gh pr view did not return JSON" };
   }
   const state = String(parsed.state || "").toUpperCase();
+  const checkEvidence = checkEvidenceFor(parsed.statusCheckRollup);
+  const passedChecks = checksPassed(parsed.statusCheckRollup);
   const commit = parsed.mergeCommit && (parsed.mergeCommit.oid || parsed.mergeCommit.abbreviatedOid)
     ? String(parsed.mergeCommit.oid || parsed.mergeCommit.abbreviatedOid)
     : "";
   const merged = state === "MERGED" && Boolean(commit);
-  const checkEvidence = checkEvidenceFor(parsed.statusCheckRollup);
   return {
-    ok: merged,
+    ok: merged && passedChecks,
     attempted: false,
     merged,
     commit,
     evidence: merged ? [`merged MR ${parsed.url}`, `merge commit ${commit}`] : [],
     checkEvidence,
-    checksPassed: merged || checksPassed(parsed.statusCheckRollup),
-    error: merged ? "" : `MR state is ${state || "unknown"}`
+    checksPassed: passedChecks,
+    error: merged
+      ? (passedChecks ? "" : "MR is merged but checks are not recorded as passed")
+      : `MR state is ${state || "unknown"}`
   };
 }
 

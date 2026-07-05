@@ -364,6 +364,22 @@ describe("transition-task.js", () => {
     assert.match(result.stderr, /actual comment/);
   });
 
+  it("rejects verified when MR checks are not recorded as passed", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.git_flow.merge_checks_passed = false;
+    task.git_flow.merge_check_evidence = [];
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /MR checks must be recorded as passed/);
+  });
+
   it("increments loop pressure only when a task fails", () => {
     const state = baseState();
     state.current_state = "implementation_in_progress";
@@ -502,6 +518,21 @@ describe("validate-state.js", () => {
     const result = runScript("validate-state.js", [statePath()]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /invalid frontend_dev lease/);
+  });
+
+  it("rejects verified dev tasks without passed MR check evidence", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "verified";
+    task.git_flow.merge_checks_passed = false;
+    task.git_flow.merge_check_evidence = [];
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("validate-state.js", [statePath()]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /verified requires passed MR checks evidence/);
   });
 
   it("rejects direct edits after a state file is sealed", () => {

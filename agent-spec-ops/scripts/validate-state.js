@@ -165,6 +165,9 @@ function validateVerifiedDevGit(task, result) {
   if (git.merge_request_comment_url && !isMergeRequestCommentUrl(git.merge_request_url, git.merge_request_comment_url)) {
     result.push(`${task.id}: merge_request_comment_url must be a real MR comment URL, not the MR URL itself`);
   }
+  if (git.merge_checks_passed !== true || !Array.isArray(git.merge_check_evidence) || !git.merge_check_evidence.length) {
+    result.push(`${task.id}: verified requires passed MR checks evidence`);
+  }
   if (git.merged !== true || !git.merge_commit || !Array.isArray(git.merge_evidence) || !git.merge_evidence.length) {
     result.push(`${task.id}: verified requires merged=true, merge_commit, and merge_evidence`);
   }

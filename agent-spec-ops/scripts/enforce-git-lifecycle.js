@@ -62,6 +62,7 @@ function checkTask(task) {
     boolCheck("push", git.pushed && hasItems(git.push_evidence), hasItems(git.push_evidence) ? git.push_evidence.join("; ") : "missing push evidence"),
     boolCheck("merge request", git.merge_request_url, git.merge_request_url || "missing MR URL"),
     boolCheck("MR status comment", git.merge_request_comment_status === "passed" && hasItems(git.merge_request_comment_evidence), hasItems(git.merge_request_comment_evidence) ? git.merge_request_comment_evidence.join("; ") : "missing passed comment evidence"),
+    boolCheck("MR checks", git.merge_checks_passed === true && hasItems(git.merge_check_evidence), hasItems(git.merge_check_evidence) ? git.merge_check_evidence.join("; ") : "missing passed MR check evidence"),
     boolCheck("merged MR", git.merge_request_status === "merged" && git.merged === true && git.merge_commit && hasItems(git.merge_evidence), git.merge_commit || "missing merged MR evidence")
   ];
 }

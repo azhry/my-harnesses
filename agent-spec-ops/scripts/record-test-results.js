@@ -131,8 +131,8 @@ if (args.mrUrl || args.merged || args.mergeCommit || args.mergeEvidence.length |
   if (args.merged) {
     git.merge_request_status = "merged";
     git.merged = true;
-    git.merge_checks_passed = true;
   }
+  if (args.mergeCheckEvidence.length) git.merge_checks_passed = true;
   if (args.mergeCommit) git.merge_commit = args.mergeCommit;
   git.merge_evidence = [
     ...new Set([
@@ -146,8 +146,7 @@ if (args.mrUrl || args.merged || args.mergeCommit || args.mergeEvidence.length |
   git.merge_check_evidence = [
     ...new Set([
       ...(git.merge_check_evidence || []),
-      ...args.mergeCheckEvidence,
-      args.merged ? "merge accepted by code host" : ""
+      ...args.mergeCheckEvidence
     ].filter(Boolean))
   ];
 }

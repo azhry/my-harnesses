@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="920" viewBox="0 0 1280 920" role="img" aria-labelledby="title desc">
   <title id="title">Agent Spec Ops State Machine</title>
-  <desc id="desc">End-to-end harness workflow from intake to done, with human review gates, rework paths, parallel frontend and backend implementation lanes, test failure loops, and task-level merge before verification.</desc>
+  <desc id="desc">End-to-end harness workflow from intake to done, with human review gates, rework paths, parallel frontend and backend implementation lanes, test failure loops, and task-level checks before merge and verification.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#1d2733"/>
@@ -74,7 +74,8 @@
   <text class="txt" x="805" y="543">MR comment</text>
   <text class="small" x="805" y="561">passed/failed</text>
   <rect class="work" x="925" y="525" width="120" height="48" rx="6"/>
-  <text class="txt" x="985" y="549">merge</text>
+  <text class="txt" x="985" y="543">checks pass</text>
+  <text class="small" x="985" y="561">then merge</text>
 
   <rect class="work" x="70" y="625" width="120" height="48" rx="6"/>
   <text class="txt" x="130" y="649">backend_dev</text>
@@ -88,7 +89,8 @@
   <text class="txt" x="805" y="643">MR comment</text>
   <text class="small" x="805" y="661">passed/failed</text>
   <rect class="work" x="925" y="625" width="120" height="48" rx="6"/>
-  <text class="txt" x="985" y="649">merge</text>
+  <text class="txt" x="985" y="643">checks pass</text>
+  <text class="small" x="985" y="661">then merge</text>
 
   <rect class="warn" x="1090" y="565" width="125" height="68" rx="7"/>
   <text class="txt" x="1152.5" y="589">loop cap</text>
@@ -125,7 +127,7 @@
 
   <path class="edge" d="M985 573 V700 H630 V805"/>
   <path class="edge" d="M985 673 V700"/>
-  <text class="label" x="810" y="695">all task MRs merged + requirements mapped</text>
+  <text class="label" x="810" y="695">all task MR checks passed + merged + requirements mapped</text>
   <path class="edge" d="M760 837 H910"/>
 
   <path class="edgeWarn" d="M235 540 C170 505 120 505 100 525"/>

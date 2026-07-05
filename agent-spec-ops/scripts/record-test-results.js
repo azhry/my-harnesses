@@ -9,6 +9,11 @@ const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 
+if (args.errors.length) {
+  console.error(args.errors.join("\n"));
+  process.exit(1);
+}
+
 if (!args.stateFile || !args.taskId) {
   console.error([
     "Usage: node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task TASK_ID --status passed|failed [options]",
@@ -24,10 +29,8 @@ if (!args.stateFile || !args.taskId) {
     "  --mr-url URL              MR URL for this task",
     "  --mr-comment-url URL      MR comment URL after posting passed/failed status",
     "  --mr-comment-evidence TXT Evidence that the MR status comment was posted",
-    "  --merged                  Record that the MR is merged",
-    "  --merge-commit SHA        Merge commit SHA",
-    "  --merge-evidence TXT      Evidence that the MR was merged (repeatable)",
-    "  --merge-check-evidence TXT Evidence that merge checks passed (repeatable)"
+    "",
+    "Dev-task MR checks and merge evidence are not accepted here. Use submit-task.js after the separate test agent records a pass."
   ].join("\n"));
   process.exit(1);
 }
@@ -57,6 +60,10 @@ if (!["passed", "failed"].includes(args.status)) {
 }
 if (!expectedRole) {
   console.error(`${args.taskId} (${task.role || "no-role"}) does not accept test result recording.`);
+  process.exit(1);
+}
+if (isDevTask(task) && hasManualMergeEvidence(args) && process.env.AGENT_SPEC_OPS_ALLOW_MANUAL_MR_EVIDENCE !== "1") {
+  console.error(`${args.taskId}: dev-task MR check/merge evidence must come from submit-task.js after the separate ${expectedRole} agent records a pass. record-test-results.js may only record tests and MR status comments.`);
   process.exit(1);
 }
 if (args.role && args.role !== expectedRole) {
@@ -193,7 +200,8 @@ function parseArgs(rawArgs) {
     merged: false,
     mergeCommit: "",
     mergeEvidence: [],
-    mergeCheckEvidence: []
+    mergeCheckEvidence: [],
+    errors: []
   };
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
@@ -201,7 +209,10 @@ function parseArgs(rawArgs) {
       parsed.stateFile = arg;
       continue;
     }
-    if (!arg.startsWith("--")) continue;
+    if (!arg.startsWith("--")) {
+      parsed.errors.push(`Unexpected positional argument: ${arg}`);
+      continue;
+    }
     if (arg === "--task" || arg === "--task-id") {
       parsed.taskId = rawArgs[++index];
       continue;
@@ -262,6 +273,7 @@ function parseArgs(rawArgs) {
       parsed.mergeCheckEvidence.push(rawArgs[++index]);
       continue;
     }
+    parsed.errors.push(`Unknown argument: ${arg}`);
   }
   if (parsed.taskId && !parsed.stateFile) {
     parsed.stateFile = parsed.taskId;
@@ -311,4 +323,12 @@ function expectedTestRole(task) {
   if (task.role === "backend_dev") return "backend_test";
   if (task.role === "frontend_test" || task.role === "backend_test") return task.role;
   return "";
+}
+
+function isDevTask(task) {
+  return task.role === "frontend_dev" || task.role === "backend_dev";
+}
+
+function hasManualMergeEvidence(parsed) {
+  return Boolean(parsed.merged || parsed.mergeCommit || parsed.mergeEvidence.length || parsed.mergeCheckEvidence.length);
 }

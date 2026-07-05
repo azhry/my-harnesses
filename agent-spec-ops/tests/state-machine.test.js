@@ -92,6 +92,14 @@ function addLease(state, taskId, role, agentId = sessionIdFor(taskId, role)) {
   });
 }
 
+function markLeaseCompleted(state, taskId, role) {
+  const lease = state.agent_dispatch.leases.find((item) => item.task_id === taskId && item.role === role);
+  if (lease) {
+    lease.status = "completed";
+    lease.completed_at = new Date().toISOString();
+  }
+}
+
 function baseState() {
   const state = JSON.parse(fs.readFileSync(path.join(ROOT, "templates", "workflow-state.json"), "utf8"));
   const now = new Date().toISOString();
@@ -421,6 +429,18 @@ describe("transition-task.js", () => {
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /user to intervene/);
   });
+
+  it("rejects option-like flags in the free-form note", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    addLease(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "active", "--role", "orchestrator"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Unexpected option/);
+  });
 });
 
 describe("record-agent-spawn.js", () => {
@@ -669,6 +689,94 @@ describe("record-test-results.js", () => {
     const result = runScript("record-test-results.js", [statePath(), "--task", "FE-001", "--status", "passed", "--role", "frontend_test", "--command", "npm test", "--output", "ok"]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /missing valid frontend_test OpenCode lease/);
+  });
+
+  it("rejects manual MR check and merge evidence for dev tasks", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("record-test-results.js", [
+      statePath(),
+      "--task", "FE-001",
+      "--status", "passed",
+      "--role", "frontend_test",
+      "--command", "npm test",
+      "--output", "ok",
+      "--merge-check-evidence", "checks passed",
+      "--merged",
+      "--merge-commit", "abc123"
+    ]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /dev-task MR check\/merge evidence must come from submit-task\.js/);
+  });
+});
+
+describe("submit-task.js", () => {
+  before(() => {
+    fs.mkdirSync(path.join(TMP, "test-output"), { recursive: true });
+    fs.writeFileSync(path.join(TMP, "test-output", "test.log"), "ok\n");
+  });
+
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("refuses to submit before the separate test agent moves the task to testing", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "implemented";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    markLeaseCompleted(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const result = runScript("submit-task.js", [statePath(), "FE-001", "--commit-msg", "feat: FE-001"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /runs only after frontend_test moves/);
+  });
+
+  it("requires recorded passed test evidence before git submission", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.test = { status: "not_run", commands: [], failures: [], evidence: [] };
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    markLeaseCompleted(state, "FE-001", "frontend_dev");
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("submit-task.js", [statePath(), "FE-001", "--commit-msg", "feat: FE-001"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /requires passed test evidence/);
+  });
+
+  it("accepts a completed exact dev lease after test sign-off", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    markLeaseCompleted(state, "FE-001", "frontend_dev");
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("submit-task.js", [
+      statePath(),
+      "FE-001",
+      "--commit-msg", "feat: FE-001",
+      "--repo-path", path.join(TMP, "not-a-repo")
+    ]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Not a git repository/);
   });
 });
 

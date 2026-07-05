@@ -53,8 +53,8 @@ No Linear task, no implementation.
 Frontend and backend may run in parallel. Dev and test are separate agents:
 
 ```text
-frontend_dev -> frontend_test -> push -> MR -> MR comment -> checks pass -> merge
-backend_dev  -> backend_test  -> push -> MR -> MR comment -> checks pass -> merge
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/MR/comment/checks/merge)
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/comment/checks/merge)
 ```
 
 If test fails, return to dev. If a dev/test loop reaches 3 attempts, stop and
@@ -70,6 +70,7 @@ Hard gates are enforced by scripts:
 - Test results require the task to be `testing` and a matching test-agent lease.
 - `verified` requires changed files, test evidence, branch, push, MR URL, passed MR status comment URL, passed MR check evidence, and merged MR evidence.
 - `submit-task.js` refuses to complete a merge unless code-host MR checks are passed; raw `gh pr merge` is not a valid harness path.
+- `record-test-results.js` records tests and MR status comments only; dev-task MR check/merge evidence must come from `submit-task.js`.
 - `submit-task.js` refuses unrelated dirty files instead of staging the whole worktree.
 - `seal-state.js` is trusted manual repair only. It refuses to seal if `validate-state.js` still reports workflow errors.
 
@@ -84,7 +85,8 @@ node scripts/record-agent-spawn.js runs/FTR-123/workflow-state.json <SPAWN_ID> <
 node scripts/check-write-scope.js runs/FTR-123/workflow-state.json <TARGET_PATH> frontend_dev
 node scripts/transition.js runs/FTR-123/workflow-state.json product_review "Requirements ready"
 node scripts/transition-task.js runs/FTR-123/workflow-state.json FE-001 active "Starting"
-node scripts/record-test-results.js runs/FTR-123/workflow-state.json --task FE-001 --status passed --role frontend_test --command "npm test" --output "..." --mr-comment-url "<URL>" --merge-check-evidence "<CHECKS_PASSED>" --merged --merge-commit "<SHA>"
+node scripts/record-test-results.js runs/FTR-123/workflow-state.json --task FE-001 --status passed --role frontend_test --command "npm test" --output "..." --mr-comment-url "<URL>"
+node scripts/submit-task.js runs/FTR-123/workflow-state.json FE-001 --commit-msg "feat: FE-001: summary" --test-command "npm test"
 node scripts/reopen-delivery.js runs/FTR-123/workflow-state.json "Human requested rework"
 node scripts/validate-harness.js
 ```

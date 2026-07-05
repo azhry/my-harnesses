@@ -5,13 +5,19 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { loadSecretEnv } = require("./lib/env-loader");
-const { hasValidLease, expectedAgentName } = require("./lib/agent-identity");
+const { hasValidLease, hasRecordedLease, expectedAgentName } = require("./lib/agent-identity");
 const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 
+if (args.errors.length) {
+  console.error(args.errors.join("\n"));
+  process.exit(1);
+}
+
 if (!args.stateFile || !args.taskId || !args.commitMsg) {
-  console.error("Usage: node scripts/submit-task.js <workflow-state.json> <TASK_ID> --commit-msg \"<msg>\" [--test-command \"<cmd>\"] [--repo-path <repo>]");
+  console.error("Usage: node scripts/submit-task.js <workflow-state.json> <TASK_ID> --commit-msg \"<msg>\" [--test-command \"<optional recheck cmd>\"] [--repo-path <repo>]");
+  console.error("submit-task.js runs after a separate test agent records passed tests; it owns push, MR comment, check inspection, and merge evidence.");
   process.exit(1);
 }
 
@@ -41,12 +47,17 @@ if (!isDevTask(task)) {
   console.error(`${args.taskId} is ${task.role}. submit-task.js only handles frontend_dev/backend_dev tasks.`);
   process.exit(1);
 }
-if (!["implemented", "testing"].includes(task.status)) {
-  console.error(`${args.taskId} is ${task.status}. submit-task.js only runs after implementation is recorded and the task is in implemented/testing.`);
+const testRole = testRoleForDevRole(task.role);
+if (task.status !== "testing") {
+  console.error(`${args.taskId} is ${task.status}. submit-task.js runs only after ${testRole} moves the implemented task to testing and records passed tests.`);
   process.exit(1);
 }
-if (!hasValidLease(state, args.taskId, task.role)) {
-  console.error(`${args.taskId}: missing valid ${task.role} OpenCode lease. Spawn ${expectedAgentName(task.role)} and record it with record-agent-spawn.js --agent ${expectedAgentName(task.role)} before submitting.`);
+if (!hasRecordedLease(state, args.taskId, task.role)) {
+  console.error(`${args.taskId}: missing recorded exact ${task.role} OpenCode lease. Spawn ${expectedAgentName(task.role)} and record it with record-agent-spawn.js --agent ${expectedAgentName(task.role)} before submitting.`);
+  process.exit(1);
+}
+if (!hasValidLease(state, args.taskId, testRole)) {
+  console.error(`${args.taskId}: missing active ${testRole} OpenCode lease. Spawn ${expectedAgentName(testRole)} and record it before test sign-off.`);
   process.exit(1);
 }
 
@@ -58,6 +69,14 @@ const baseBranch = policy.base_branch || "main";
 const targetBranch = policy.target_branch || baseBranch;
 const branchName = formatBranch(policy.branch_name_pattern || "delivery/<DELIVERY_ID>/<TASK_ID>", deliveryId, args.taskId);
 const blockers = [];
+const recordedTestErrors = validateRecordedPassedTest(task, runDir);
+
+if (recordedTestErrors.length) {
+  fail([
+    `${args.taskId}: submit-task.js requires passed test evidence from the separate ${testRole} agent before push/MR/merge.`,
+    ...recordedTestErrors.map((item) => `- ${item}`)
+  ].join("\n"));
+}
 
 console.log(`[submit] ${args.taskId}`);
 console.log(`repo: ${repoPath}`);
@@ -97,15 +116,23 @@ if (status.stdout.trim()) {
   console.log("commit: no changes");
 }
 
-const test = runTest(repoPath, args.testCommand);
-const testOutputFile = writeTestOutput(runDir, args.taskId, test.output);
-task.test = {
-  status: test.passed ? "passed" : "failed",
-  last_run_at: new Date().toISOString(),
-  commands: [args.testCommand || "none"],
-  failures: test.passed ? [] : [test.summary],
-  output_file: testOutputFile
-};
+const submitCheck = args.testCommand
+  ? runTest(repoPath, args.testCommand)
+  : { passed: true, output: "", summary: "using recorded test result" };
+const testOutputFile = args.testCommand
+  ? writeTestOutput(runDir, args.taskId, submitCheck.output)
+  : task.test.output_file;
+if (args.testCommand) {
+  task.test = {
+    ...(task.test || {}),
+    status: submitCheck.passed ? "passed" : "failed",
+    last_run_at: new Date().toISOString(),
+    commands: [...new Set([...(task.test && task.test.commands || []), args.testCommand])],
+    failures: submitCheck.passed ? [] : [...new Set([...(task.test && task.test.failures || []), submitCheck.summary])],
+    output_file: testOutputFile,
+    evidence: [...new Set([...(task.test && task.test.evidence || []), testOutputFile])]
+  };
+}
 
 const push = run(repoPath, "git", ["push", "-u", "origin", branchName], { timeout: 60000 });
 if (!push.ok) blockers.push(`push failed: ${push.stderr || push.stdout || push.error}`);
@@ -121,17 +148,17 @@ if (!pr.ok) blockers.push(pr.error || "merge request creation failed");
 
 const comment = pr.ok ? commentMergeRequest(repoPath, pr.number || pr.url, {
   taskId: args.taskId,
-  status: test.passed ? "passed" : "failed",
-  command: args.testCommand || "none",
+  status: submitCheck.passed ? "passed" : "failed",
+  command: args.testCommand || (task.test.commands || []).join(", "),
   evidence: testOutputFile,
-  summary: test.summary
+  summary: submitCheck.summary
 }) : { ok: false, url: "", evidence: [], error: "merge request missing" };
 if (!comment.ok) blockers.push(comment.error || "merge request status comment failed");
 
-const merge = pr.ok && comment.ok && test.passed
+const merge = pr.ok && comment.ok && submitCheck.passed
   ? mergeMergeRequest(repoPath, pr.number || pr.url, policy)
   : { ok: false, attempted: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "merge skipped until tests and MR comment pass" };
-if (pr.ok && comment.ok && test.passed && !merge.ok) {
+if (pr.ok && comment.ok && submitCheck.passed && !merge.ok) {
   blockers.push(merge.error || "merge failed");
 }
 
@@ -141,7 +168,7 @@ task.git_flow = {
   feature_branch: branchName,
   branch_created: true,
   branch_evidence: [`checked out ${branchName}`],
-  local_tests_passed: test.passed,
+  local_tests_passed: submitCheck.passed,
   test_evidence: [testOutputFile],
   pushed: push.ok,
   push_evidence: push.ok ? [`pushed origin/${branchName}`] : [],
@@ -164,9 +191,9 @@ task.git_flow = {
 state.delivery.updated_at = new Date().toISOString();
 writeWorkflowState(statePath, state, { writer: "submit-task.js" });
 
-if (!test.passed || blockers.length) {
+if (!submitCheck.passed || blockers.length) {
   console.error("submit incomplete:");
-  if (!test.passed) console.error(`- tests failed: ${test.summary}`);
+  if (!submitCheck.passed) console.error(`- tests failed: ${submitCheck.summary}`);
   for (const blocker of blockers) console.error(`- ${blocker}`);
   process.exit(1);
 }
@@ -175,17 +202,49 @@ console.log("submit complete");
 console.log(`next: node scripts/transition-task.js "${args.stateFile}" ${args.taskId} verified`);
 
 function parseArgs(raw) {
-  const parsed = { stateFile: raw[0] || "", taskId: raw[1] || "", commitMsg: "", testCommand: "", repoPath: "" };
+  const parsed = { stateFile: raw[0] || "", taskId: raw[1] || "", commitMsg: "", testCommand: "", repoPath: "", errors: [] };
   for (let i = 2; i < raw.length; i += 1) {
     if (raw[i] === "--commit-msg") parsed.commitMsg = raw[++i] || "";
     else if (raw[i] === "--test-command") parsed.testCommand = raw[++i] || "";
     else if (raw[i] === "--repo-path") parsed.repoPath = raw[++i] || "";
+    else if (raw[i].startsWith("--")) parsed.errors.push(`Unknown argument: ${raw[i]}`);
+    else parsed.errors.push(`Unexpected positional argument: ${raw[i]}`);
   }
   return parsed;
 }
 
 function isDevTask(task) {
   return task.role === "frontend_dev" || task.role === "backend_dev";
+}
+
+function testRoleForDevRole(role) {
+  if (role === "frontend_dev") return "frontend_test";
+  if (role === "backend_dev") return "backend_test";
+  return "";
+}
+
+function validateRecordedPassedTest(task, runDir) {
+  const test = task.test || {};
+  const errors = [];
+  if (test.status !== "passed") errors.push(`task.test.status is ${test.status || "missing"}, expected passed`);
+  if (!test.last_run_at) errors.push("task.test.last_run_at is missing");
+  if (!Array.isArray(test.commands) || !test.commands.length) errors.push("task.test.commands is empty");
+  if (Array.isArray(test.failures) && test.failures.length) errors.push(`task.test.failures is not empty: ${test.failures.join("; ")}`);
+  if (!test.output_file) {
+    errors.push("task.test.output_file is missing");
+  } else if (!fs.existsSync(resolveRunPath(runDir, test.output_file))) {
+    errors.push(`task.test.output_file does not exist: ${test.output_file}`);
+  }
+  return errors;
+}
+
+function resolveRunPath(runDir, value) {
+  if (path.isAbsolute(value)) return value;
+  const normalized = String(value).replace(/\\/g, "/");
+  if (normalized.startsWith("runs/")) {
+    return path.resolve(__dirname, "..", normalized);
+  }
+  return path.resolve(runDir, value);
 }
 
 function dirtyFiles(repo) {
@@ -266,7 +325,6 @@ function checkoutBranch(repo, branchName) {
 }
 
 function runTest(repo, command) {
-  if (!command) return { passed: true, output: "No test command provided.", summary: "no test command" };
   const result = spawnSync(command, {
     cwd: repo,
     shell: true,

@@ -113,13 +113,12 @@ function promptForTask(task, dispatchRole) {
       `Git lifecycle: create feature branch ${gitFlow.feature_branch || "(fill task git_flow.feature_branch)"} from ${gitPolicy.base_branch}.`,
       "Implement the assigned task and record changed files/evidence.",
       "Do not mark the task verified; the separate test agent owns test sign-off.",
-      "After test sign-off, push the feature branch.",
-      `Create a merge request/pull request targeting ${gitPolicy.target_branch} using the MR description template.`,
-      "After MR creation, ensure the test agent comments passed or failed on the MR.",
+      "Do not hand-write MR/check/merge evidence in workflow-state.json.",
+      `After the separate test agent records passed tests, use submit-task.js for push, MR creation targeting ${gitPolicy.target_branch}, MR status comment, code-host check inspection, and merge.`,
       gitFlow.auto_merge === false
-        ? `Do not merge automatically because auto_merge=false. Reason: ${gitFlow.auto_merge_disabled_reason || "(missing)"}`
-        : "After tests pass and the MR has a passed status comment, merge the task MR unless code-host policy blocks it.",
-      "Record branch, test, push, MR, MR status comment, and merge evidence in task.git_flow."
+        ? `submit-task.js must respect auto_merge=false. Reason: ${gitFlow.auto_merge_disabled_reason || "(missing)"}`
+        : "Do not run raw gh pr merge; submit-task.js owns merge after checks pass.",
+      "If submit-task.js cannot complete, report its blocker instead of fabricating lifecycle evidence."
     ]
     : [];
   const testInstructions = ["frontend_test", "backend_test"].includes(dispatchRole)
@@ -128,7 +127,8 @@ function promptForTask(task, dispatchRole) {
       "Use transition-task.js to move the task to testing if needed.",
       "Run the verification commands from the task plan.",
       "Record passed/failed evidence with record-test-results.js using your test role.",
-      "Passed tests alone are not verified; verified requires passed MR comment and merged MR evidence.",
+      "Do not pass --merged, --merge-commit, or --merge-check-evidence to record-test-results.js for dev tasks.",
+      "Passed tests alone are not verified; submit-task.js must create/comment/check/merge the task MR afterward.",
       "On failure, transition the task to failed so the dev agent loop resumes."
     ]
     : [];

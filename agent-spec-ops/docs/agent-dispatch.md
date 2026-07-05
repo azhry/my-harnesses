@@ -9,8 +9,8 @@ Each lease must be recorded with the exact OpenCode adapter name:
 `agent-spec-backend-dev`, or `agent-spec-backend-test`.
 
 ```text
-frontend_dev -> frontend_test -> push -> MR -> MR comment -> checks pass -> merge
-backend_dev  -> backend_test  -> push -> MR -> MR comment -> checks pass -> merge
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/MR/comment/checks/merge)
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/comment/checks/merge)
 ```
 
 Commands:
@@ -26,6 +26,7 @@ Generic OpenCode agents such as `general`, `build`, or `explore` are not valid
 implementation/test leases.
 Raw `gh pr merge` is not a valid dispatch path. Use `submit-task.js`, which
 requires passed MR checks before recording merged evidence.
+Do not pass manual merge/check flags to `record-test-results.js` for dev tasks.
 
 Run state is sealed after trusted script writes. If context recovery or state
 validation reports an integrity error, stop dispatch; repair the state

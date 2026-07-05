@@ -40,6 +40,13 @@ const LANE_ROLE_MAP = {
 
 const [file, taskId, nextStatus, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
+const unexpectedOptions = noteParts.filter((part) => String(part).startsWith("--"));
+
+if (unexpectedOptions.length) {
+  console.error(`Unexpected option(s): ${unexpectedOptions.join(", ")}`);
+  console.error("Usage: node scripts/transition-task.js path/to/workflow-state.json TASK_ID STATUS [NOTE]");
+  process.exit(1);
+}
 
 checkContext("transition-task.js");
 
@@ -151,19 +158,19 @@ if (nextStatus === "verified") {
     }
   }
   if (test.status !== "passed") {
-    errors.push(`${taskId}: Cannot transition to verified. You forgot to run tests. Run 'node scripts/submit-task.js' to automate this, or manually run 'scripts/record-test-results.js'.`);
+    errors.push(`${taskId}: Cannot transition to verified. Tests must be run by the separate test agent and recorded with record-test-results.js before submit-task.js.`);
   }
   if (!test.last_run_at) {
-    errors.push(`${taskId}: Cannot transition to verified. You forgot to execute tests. Run 'node scripts/submit-task.js' first.`);
+    errors.push(`${taskId}: Cannot transition to verified. Test execution timestamp is missing. Run the matching test agent first.`);
   }
   if (!test.commands || !test.commands.length) {
-    errors.push(`${taskId}: Cannot transition to verified. No test commands recorded. Run 'node scripts/submit-task.js' first.`);
+    errors.push(`${taskId}: Cannot transition to verified. No test commands recorded. Run the matching test agent first.`);
   }
   if (test.failures && test.failures.length > 0) {
-    errors.push(`${taskId}: Cannot transition to verified. Tests are failing. Fix tests and run 'node scripts/submit-task.js' again.`);
+    errors.push(`${taskId}: Cannot transition to verified. Tests are failing. Return the task to dev, then retest.`);
   }
   if (!test.output_file) {
-    errors.push(`${taskId}: Cannot transition to verified. You forgot to record test output. Run 'node scripts/submit-task.js' first.`);
+    errors.push(`${taskId}: Cannot transition to verified. Test output evidence is missing. Run record-test-results.js from the matching test role.`);
   } else {
     const outputPath = resolveRunPath(runDir, test.output_file);
     if (!fs.existsSync(outputPath)) {
@@ -186,7 +193,7 @@ if (nextStatus === "verified") {
       errors.push(`${taskId}: Cannot transition to verified. Git flow 'pushed' is missing. Run 'node scripts/submit-task.js' to fix this automatically.`);
     }
     if (git.merge_request_status !== "merged" || !git.merge_request_url) {
-      errors.push(`${taskId}: Cannot transition to verified. The merge request must be merged before verification. Run 'node scripts/submit-task.js' or record merged MR evidence.`);
+      errors.push(`${taskId}: Cannot transition to verified. The merge request must be merged before verification. Run 'node scripts/submit-task.js'; manual merged evidence is not accepted for dev tasks.`);
     }
     if (git.merge_request_comment_status !== "passed" || !git.merge_request_comment_url || !(git.merge_request_comment_evidence || []).length) {
       errors.push(`${taskId}: Cannot transition to verified. MR status comment URL/evidence with status 'passed' is missing. Run 'node scripts/submit-task.js' after tests.`);
@@ -195,7 +202,7 @@ if (nextStatus === "verified") {
       errors.push(`${taskId}: Cannot transition to verified. MR status comment URL must point to an actual comment, not the MR itself.`);
     }
     if (git.merge_checks_passed !== true || !Array.isArray(git.merge_check_evidence) || git.merge_check_evidence.length === 0) {
-      errors.push(`${taskId}: Cannot transition to verified. MR checks must be recorded as passed before merge/verification. Run 'node scripts/submit-task.js' and wait for code-host checks, or record explicit passed check evidence.`);
+      errors.push(`${taskId}: Cannot transition to verified. MR checks must be recorded as passed before merge/verification. Run 'node scripts/submit-task.js' and wait for code-host checks.`);
     }
     if (git.merged !== true || !git.merge_commit || !(git.merge_evidence || []).length) {
       errors.push(`${taskId}: Cannot transition to verified. Merged MR evidence is missing. Required: git_flow.merged=true, merge_commit, and merge_evidence.`);

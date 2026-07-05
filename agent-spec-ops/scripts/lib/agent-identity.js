@@ -47,6 +47,19 @@ function hasValidLease(state, taskId, role) {
 }
 
 function validLease(state, taskId, role) {
+  return findLease(state, taskId, role, ["leased", "active"]);
+}
+
+function hasRecordedLease(state, taskId, role) {
+  return recordedLease(state, taskId, role) !== null;
+}
+
+function recordedLease(state, taskId, role) {
+  return findLease(state, taskId, role, ["leased", "active", "completed"]);
+}
+
+function findLease(state, taskId, role, statuses) {
+  const allowedStatuses = new Set(statuses);
   const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
     ? state.agent_dispatch.leases
     : [];
@@ -54,7 +67,7 @@ function validLease(state, taskId, role) {
     lease &&
     lease.task_id === taskId &&
     lease.role === role &&
-    ["leased", "active"].includes(lease.status || "leased") &&
+    allowedStatuses.has(lease.status || "leased") &&
     leaseIdentityErrors(lease).length === 0
   ) || null;
 }
@@ -63,6 +76,8 @@ module.exports = {
   expectedAgentName,
   validateSpawnIdentity,
   leaseIdentityErrors,
+  hasRecordedLease,
   hasValidLease,
-  validLease
+  validLease,
+  recordedLease
 };

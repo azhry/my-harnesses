@@ -109,6 +109,8 @@ function buildManagedBlock(includeTitle) {
   lines.push("");
   lines.push("### Non-Negotiable Workflow");
   lines.push("");
+  lines.push("- A default/freeform OpenCode `build` or `general` session is not the harness orchestrator.");
+  lines.push("- If this prompt was not launched through `/agent-spec-spawn` or `@agent-spec-orchestrator`, stop and ask the user to restart through the harness command/agent before planning, spawning, editing, submitting, or merging.");
   lines.push("- Do not treat a user prompt as direct coding work while this run is active.");
   lines.push("- If the user requests rework, stop implementation and route back to `task_breakdown`.");
   lines.push("- Do not keep task, gate, credential, or design knowledge only in chat.");
@@ -123,6 +125,7 @@ function buildManagedBlock(includeTitle) {
   lines.push("- `implemented` requires scoped changed files and implementation evidence.");
   lines.push("- Dev tasks require test evidence, pushed branch, MR URL, passed MR status comment, passed MR check evidence, and merged MR evidence before `verified`.");
   lines.push("- Do not run raw `gh pr merge`; use `submit-task.js` so MR checks are inspected before merge.");
+  lines.push("- `record-test-results.js` records tests and MR status comments only; dev-task MR check/merge evidence must come from `submit-task.js`.");
   lines.push("- After test failure, return to dev. After three dev/test loops, stop and ask the user to intervene.");
   lines.push("- Orchestrator may not edit project files or run dev/test directly during implementation.");
   lines.push("- Task transitions require a matching recorded exact-agent lease from `record-agent-spawn.js --agent <AGENT_NAME>`.");
@@ -193,11 +196,13 @@ function buildManagedBlock(includeTitle) {
   lines.push(`node scripts/check-write-scope.js ${stateRelFromHarness} <TARGET_PATH> ${role}`);
   lines.push("```");
   lines.push("");
-  lines.push("Tests must be recorded by the matching test role after the task enters `testing`:");
+  lines.push("Tests must be recorded by the matching test role after the task enters `testing`.");
+  lines.push("Do not add `--merged`, `--merge-commit`, or `--merge-check-evidence` here for dev tasks:");
   lines.push("");
   lines.push("```bash");
   lines.push(`cd ${harnessRel}`);
-  lines.push(`node scripts/record-test-results.js ${stateRelFromHarness} --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --mr-comment-evidence "posted passed status" --merge-check-evidence "<CHECKS_PASSED>" --merged --merge-commit "<SHA>" --merge-evidence "MR merged"`);
+  lines.push(`node scripts/record-test-results.js ${stateRelFromHarness} --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --mr-comment-evidence "posted passed status"`);
+  lines.push(`node scripts/submit-task.js ${stateRelFromHarness} <TASK_ID> --commit-msg "feat: <TASK_ID>: summary" --test-command "<OPTIONAL_RECHECK_COMMAND>"`);
   lines.push("```");
   lines.push("");
   lines.push("### Current Tasks");
@@ -286,6 +291,7 @@ function openCodeAdapterFiles() {
         "",
         "- Do not edit project files.",
         "- Do not run frontend/backend dev or test work yourself.",
+        "- If this is a default build/general session, stop and tell the user to invoke `/agent-spec-spawn` or `@agent-spec-orchestrator`.",
         "- If the user requests rework, route back to `task_breakdown`; do not patch code first.",
         "- Use `plan-agent-dispatch.js --enable-auto` to create planned spawn requests.",
         "- Invoke only the exact `.opencode/agents/agent-spec-*` subagent named by each planned request.",
@@ -333,8 +339,8 @@ function openCodeAdapterFiles() {
         "- Run only relevant frontend tests and visual checks required by the task.",
         "- Record pass/fail evidence with `record-test-results.js --role frontend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",
-        "- A passed task is not verified until the task MR checks pass, the MR is merged, and merge evidence is recorded.",
-        "- Do not run raw `gh pr merge`; use `submit-task.js` so MR checks are inspected before merge.",
+        "- Do not use manual merge/check flags with `record-test-results.js` for dev tasks.",
+        "- A passed task is not verified until `submit-task.js` creates/comments/checks/merges the MR.",
         "- If tests fail, transition the task to `failed` and return it to frontend_dev.",
         "- If the dev/test loop reaches 3 attempts, stop and ask the user to intervene.",
         "- Do not edit project files except user-approved test artifact updates.",
@@ -379,8 +385,8 @@ function openCodeAdapterFiles() {
         "- Run only relevant backend tests required by the task.",
         "- Record pass/fail evidence with `record-test-results.js --role backend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",
-        "- A passed task is not verified until the task MR checks pass, the MR is merged, and merge evidence is recorded.",
-        "- Do not run raw `gh pr merge`; use `submit-task.js` so MR checks are inspected before merge.",
+        "- Do not use manual merge/check flags with `record-test-results.js` for dev tasks.",
+        "- A passed task is not verified until `submit-task.js` creates/comments/checks/merges the MR.",
         "- If tests fail, transition the task to `failed` and return it to backend_dev.",
         "- If the dev/test loop reaches 3 attempts, stop and ask the user to intervene.",
         "- Do not edit project files except user-approved test artifact updates.",
@@ -470,6 +476,7 @@ function openCodeSpawnCommand() {
     "# Agent Spec Ops Dispatch",
     "",
     "Use this command only for the compact harness. It must run through the `agent-spec-orchestrator` OpenCode agent.",
+    "If you are in a default `build` or `general` session, stop and ask the user to invoke this command instead of continuing.",
     "",
     "Steps:",
     "",

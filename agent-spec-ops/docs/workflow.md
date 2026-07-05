@@ -26,11 +26,12 @@ repaired data and refuses to bless a state that still has workflow errors.
 Frontend and backend lanes run in parallel when scopes do not overlap.
 
 ```text
-frontend_dev -> frontend_test -> push -> MR -> MR comment -> checks pass -> merge
-backend_dev  -> backend_test  -> push -> MR -> MR comment -> checks pass -> merge
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/MR/comment/checks/merge)
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/comment/checks/merge)
 ```
 
 Dev and test must be separate `agent-spec-*` OpenCode agents. Test failure
 returns to dev. A loop that reaches 3 attempts requires user intervention.
 Each task needs its own MR; shared task MRs are rejected.
-MRs must not be merged until code-host checks pass.
+MRs must not be merged until code-host checks pass, and dev-task MR check/merge
+evidence must come from `submit-task.js`.

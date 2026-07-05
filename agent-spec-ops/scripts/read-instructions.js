@@ -84,10 +84,10 @@ function roleRule(roleName) {
     product_manager: "Owns product requirements. Output must be reviewable by a human.",
     project_manager: "Owns Linear task breakdown. Every task needs title, description, scope, DoD, test plan, dependencies, and MR description template.",
     frontend_dev: "Implement only assigned frontend task scope. Do not test-sign off your own work.",
-    frontend_test: "Test assigned frontend work. On pass/fail, comment on the MR and record evidence. Passed tasks still need merged MR evidence before verified.",
+    frontend_test: "Test assigned frontend work. On pass/fail, record evidence and MR comment status only. Do not record dev-task merge/check evidence manually.",
     backend_dev: "Implement only assigned backend task scope. Do not test-sign off your own work.",
-    backend_test: "Test assigned backend work. On pass/fail, comment on the MR and record evidence. Passed tasks still need merged MR evidence before verified.",
-    orchestrator: "Owns state transitions, subagent dispatch, review gates, and rework routing."
+    backend_test: "Test assigned backend work. On pass/fail, record evidence and MR comment status only. Do not record dev-task merge/check evidence manually.",
+    orchestrator: "Owns state transitions, subagent dispatch, review gates, and rework routing. Valid only inside the agent-spec-orchestrator OpenCode agent, not a default build/general session."
   };
   return rules[roleName] || rules.orchestrator;
 }
@@ -114,7 +114,7 @@ function roleGates(stateName, roleName) {
     return [
       "- ALLOWED: verify the assigned implemented task and record passed/failed evidence.",
       "- DENIED: edit implementation files, implement planned work, bypass MR status comment or merge evidence.",
-      "- REQUIRED: transition implemented -> testing, run checks, record-test-results, comment passed/failed on MR, and ensure merged MR evidence before verified."
+      "- REQUIRED: transition implemented -> testing, run checks, record-test-results without manual merge/check flags, then hand back for submit-task.js."
     ];
   }
   return ["- DENIED: implementation actions are reserved for orchestrator, dev, and test roles."];

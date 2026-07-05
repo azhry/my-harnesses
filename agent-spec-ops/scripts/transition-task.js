@@ -12,6 +12,8 @@ const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { hasValidLease, validLease } = require("./lib/agent-identity");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 const harnessRoot = path.resolve(__dirname, "..");
 
 const ALLOWED_TRANSITIONS = {
@@ -65,7 +67,13 @@ if (!taskStatuses.includes(nextStatus)) {
 
 const statePath = path.resolve(file);
 loadSecretEnv(statePath);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks)
   ? state.task_graph.tasks
@@ -90,8 +98,8 @@ if (!allowed.includes(nextStatus)) {
 const errors = [];
 const leaseRole = requiredLeaseRoleForTransition(task, nextStatus, currentStatus);
 
-if (leaseRole && !hasActiveLease(state, taskId, leaseRole)) {
-  errors.push(`${taskId}: ${nextStatus} requires a recorded ${leaseRole} subagent lease. Run plan-agent-dispatch.js, spawn the requested agent, then record it with record-agent-spawn.js.`);
+if (leaseRole && !hasValidLease(state, taskId, leaseRole)) {
+  errors.push(`${taskId}: ${nextStatus} requires a valid ${leaseRole} OpenCode lease recorded with the exact agent name. Run plan-agent-dispatch.js, spawn the matching agent-spec-* agent, then record it with record-agent-spawn.js --agent <AGENT_NAME>.`);
 }
 
 if (nextStatus === "active") {
@@ -114,6 +122,18 @@ if (nextStatus === "active") {
   if (activeInLane.length > 0) {
     errors.push(`WIP=1 violation: ${task.role} lane already has active task: ${activeInLane[0].id}`);
   }
+}
+
+if (nextStatus === "implemented" && isDevTask(task)) {
+  collectDirtyImplementationEvidence(state, statePath, task);
+  const implementation = task.implementation || {};
+  if (!Array.isArray(implementation.changed_files) || implementation.changed_files.length === 0) {
+    errors.push(`${taskId}: Cannot transition to implemented. implementation.changed_files is empty and no scoped dirty files were detected.`);
+  }
+  if (!Array.isArray(implementation.evidence) || implementation.evidence.length === 0) {
+    errors.push(`${taskId}: Cannot transition to implemented. implementation.evidence is empty.`);
+  }
+  validateChangedFilesScope(state, task, taskId, errors);
 }
 
 if (nextStatus === "verified") {
@@ -151,22 +171,7 @@ if (nextStatus === "verified") {
     }
   }
 
-  // === SCOPE ENFORCEMENT: changed_files must match approved repos ===
-  const approvedRepos = new Set();
-  const allTasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
-  for (const t of allTasks) {
-    if (t.scope && Array.isArray(t.scope.allowed_repos)) {
-      for (const r of t.scope.allowed_repos) approvedRepos.add(r);
-    }
-  }
-  if (approvedRepos.size > 0 && Array.isArray(task.implementation && task.implementation.changed_files)) {
-    for (const cf of task.implementation.changed_files) {
-      const cfRepo = cf.split(/[/\\]/)[0];
-      if (cfRepo && !approvedRepos.has(cfRepo) && !cf.startsWith("runs/")) {
-        errors.push(`${taskId}: changed_file "${cf}" references repo "${cfRepo}" not in approved repos: ${[...approvedRepos].join(", ")}`);
-      }
-    }
-  }
+  validateChangedFilesScope(state, task, taskId, errors);
 
   if (isDevTask(task)) {
     const git = task.git_flow || {};
@@ -186,8 +191,22 @@ if (nextStatus === "verified") {
     if (git.merge_request_comment_status !== "passed" || !git.merge_request_comment_url || !(git.merge_request_comment_evidence || []).length) {
       errors.push(`${taskId}: Cannot transition to verified. MR status comment URL/evidence with status 'passed' is missing. Run 'node scripts/submit-task.js' after tests.`);
     }
+    if (git.merge_request_comment_url && !isMergeRequestCommentUrl(git.merge_request_url, git.merge_request_comment_url)) {
+      errors.push(`${taskId}: Cannot transition to verified. MR status comment URL must point to an actual comment, not the MR itself.`);
+    }
     if (git.merged !== true || !git.merge_commit || !(git.merge_evidence || []).length) {
       errors.push(`${taskId}: Cannot transition to verified. Merged MR evidence is missing. Required: git_flow.merged=true, merge_commit, and merge_evidence.`);
+    }
+    const sharedMrTask = tasks.find((other) =>
+      other.id !== taskId &&
+      isDevTask(other) &&
+      other.git_flow &&
+      other.git_flow.merge_request_url &&
+      git.merge_request_url &&
+      other.git_flow.merge_request_url === git.merge_request_url
+    );
+    if (sharedMrTask) {
+      errors.push(`${taskId}: Cannot transition to verified. MR ${git.merge_request_url} is already recorded for ${sharedMrTask.id}; each task requires its own MR.`);
     }
   }
 
@@ -283,7 +302,7 @@ state.log.push({
   note: `Task ${taskId} transitioned: ${currentStatus} -> ${nextStatus}${note ? ` (${note})` : ""}`
 });
 
-fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+writeWorkflowState(statePath, state, { writer: "transition-task.js" });
 updateSessionMarker(statePath, {
   state: state.current_state,
   state_updated_at: state.delivery.updated_at,
@@ -335,6 +354,13 @@ function isDevTask(task) {
   return task.role === "frontend_dev" || task.role === "backend_dev";
 }
 
+function isMergeRequestCommentUrl(mrUrl, commentUrl) {
+  const normalizedMr = String(mrUrl || "").replace(/\/$/, "");
+  const normalizedComment = String(commentUrl || "").replace(/\/$/, "");
+  if (!normalizedComment || normalizedComment === normalizedMr) return false;
+  return /#(note|discussion_r)_?\d+/i.test(normalizedComment) || /#issuecomment-\d+/i.test(normalizedComment);
+}
+
 function testRoleForDevRole(role) {
   if (role === "frontend_dev") return "frontend_test";
   if (role === "backend_dev") return "backend_test";
@@ -354,29 +380,11 @@ function requiredLeaseRoleForTransition(task, nextStatus, currentStatus) {
   return task.role || "";
 }
 
-function hasActiveLease(state, taskId, role) {
-  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
-    ? state.agent_dispatch.leases
-    : [];
-  return leases.some((lease) =>
-    lease &&
-    lease.task_id === taskId &&
-    lease.role === role &&
-    lease.agent_id &&
-    ["leased", "active"].includes(lease.status || "leased")
-  );
-}
-
 function updateLeasesForTransition(state, taskId, role, nextStatus) {
   if (!role || !state.agent_dispatch || !Array.isArray(state.agent_dispatch.leases)) {
     return;
   }
-  const lease = state.agent_dispatch.leases.find((item) =>
-    item &&
-    item.task_id === taskId &&
-    item.role === role &&
-    ["leased", "active"].includes(item.status || "leased")
-  );
+  const lease = validLease(state, taskId, role);
   if (!lease) return;
   if (nextStatus === "active" || nextStatus === "testing") {
     lease.status = "active";
@@ -415,4 +423,111 @@ function resolveRunPath(runDir, value) {
     return path.resolve(harnessRoot, normalized);
   }
   return path.resolve(runDir, value);
+}
+
+function collectDirtyImplementationEvidence(candidate, stateFile, item) {
+  const repo = resolveWorkspaceRoot(candidate, stateFile);
+  if (!repo || !fs.existsSync(path.join(repo, ".git"))) return;
+  let output = "";
+  try {
+    output = execSync("git status --porcelain", {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+  } catch {
+    return;
+  }
+  const scopedFiles = output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .flatMap(parseStatusPath)
+    .filter((file) => isPathAllowedForTask(file, item))
+    .map((file) => normalizeChangedFileForState(file, item));
+
+  if (!scopedFiles.length) return;
+
+  item.implementation = item.implementation || { changed_files: [], evidence: [], deviations: [] };
+  item.implementation.changed_files = [
+    ...new Set([...(item.implementation.changed_files || []), ...scopedFiles])
+  ];
+  item.implementation.evidence = [
+    ...new Set([...(item.implementation.evidence || []), `Detected ${scopedFiles.length} scoped dirty file(s) at implemented transition`])
+  ];
+}
+
+function resolveWorkspaceRoot(candidate, stateFile) {
+  const value = candidate.workspace_root || "";
+  if (!value) return "";
+  return path.isAbsolute(value) ? value : path.resolve(path.dirname(stateFile), value);
+}
+
+function parseStatusPath(line) {
+  const body = line.length > 3 ? line.slice(3).trim() : "";
+  if (!body) return [];
+  if (body.includes(" -> ")) {
+    return body.split(" -> ").map(cleanStatusPath);
+  }
+  return [cleanStatusPath(body)];
+}
+
+function cleanStatusPath(value) {
+  return String(value).replace(/^"|"$/g, "").replace(/\\/g, "/");
+}
+
+function isPathAllowedForTask(filePath, item) {
+  const normalizedFile = cleanStatusPath(filePath).replace(/^\.\//, "");
+  const scope = item.scope || {};
+  const allowedPaths = Array.isArray(scope.allowed_paths) ? scope.allowed_paths : [];
+  const allowedRepos = Array.isArray(scope.allowed_repos) ? scope.allowed_repos : [];
+  return allowedPaths.some((allowedPath) => {
+    const normalizedAllowed = staticAllowedPath(allowedPath).replace(/^\.\//, "").replace(/\/?$/, "/");
+    if (normalizedAllowed === "/" || normalizedAllowed === "./" || normalizedAllowed === ".") return true;
+    if (normalizedFile === normalizedAllowed.replace(/\/$/, "") || normalizedFile.startsWith(normalizedAllowed)) return true;
+    for (const repo of allowedRepos) {
+      const repoPrefix = `${cleanStatusPath(repo).replace(/\/?$/, "/")}`;
+      if (normalizedAllowed.startsWith(repoPrefix)) {
+        const withoutRepo = normalizedAllowed.slice(repoPrefix.length);
+        if (normalizedFile === withoutRepo.replace(/\/$/, "") || normalizedFile.startsWith(withoutRepo)) return true;
+      }
+    }
+    return false;
+  });
+}
+
+function staticAllowedPath(allowedPath) {
+  const normalized = cleanStatusPath(allowedPath);
+  const wildcard = normalized.search(/[*?]/);
+  if (wildcard === -1) return normalized || ".";
+  const prefix = normalized.slice(0, wildcard);
+  const slash = prefix.lastIndexOf("/");
+  if (slash === -1) return prefix || ".";
+  return prefix.slice(0, slash + 1) || ".";
+}
+
+function normalizeChangedFileForState(filePath, item) {
+  const cleaned = cleanStatusPath(filePath).replace(/^\.\//, "");
+  const repos = item.scope && Array.isArray(item.scope.allowed_repos) ? item.scope.allowed_repos.filter(Boolean) : [];
+  if (repos.length === 1 && !cleaned.startsWith(`${repos[0]}/`)) {
+    return `${repos[0]}/${cleaned}`;
+  }
+  return cleaned;
+}
+
+function validateChangedFilesScope(candidate, item, itemId, result) {
+  const approvedRepos = new Set();
+  const allTasks = candidate.task_graph && Array.isArray(candidate.task_graph.tasks) ? candidate.task_graph.tasks : [];
+  for (const t of allTasks) {
+    if (t.scope && Array.isArray(t.scope.allowed_repos)) {
+      for (const r of t.scope.allowed_repos) approvedRepos.add(r);
+    }
+  }
+  if (approvedRepos.size > 0 && Array.isArray(item.implementation && item.implementation.changed_files)) {
+    for (const cf of item.implementation.changed_files) {
+      const cfRepo = cf.split(/[/\\]/)[0];
+      if (cfRepo && !approvedRepos.has(cfRepo) && !cf.startsWith("runs/")) {
+        result.push(`${itemId}: changed_file "${cf}" references repo "${cfRepo}" not in approved repos: ${[...approvedRepos].join(", ")}`);
+      }
+    }
+  }
 }

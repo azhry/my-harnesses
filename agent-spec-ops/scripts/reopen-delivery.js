@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { appendEvent } = require("./lib/memory-store");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const [file, ...reasonParts] = process.argv.slice(2);
 const reason = reasonParts.join(" ").trim();
@@ -14,7 +15,13 @@ if (!file || !reason) {
 }
 
 const statePath = path.resolve(file);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const allowed = ["implementation_in_progress", "implementation_review", "done", "blocked"];
 
 if (!allowed.includes(state.current_state)) {
@@ -52,7 +59,7 @@ state.log.push({
   note: `Reopened from ${from}: ${reason}`
 });
 
-fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+writeWorkflowState(statePath, state, { writer: "reopen-delivery.js" });
 
 appendEvent(statePath, {
   type: "rework_requested",

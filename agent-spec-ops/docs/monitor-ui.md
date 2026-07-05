@@ -16,4 +16,5 @@ The monitor shows:
 - failed dev/test retry pressure
 - subagent dispatch
 - MR/test status
+- workflow-state integrity seal status
 - recent events

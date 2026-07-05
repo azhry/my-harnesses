@@ -6,6 +6,7 @@ const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { execSync } = require("node:child_process");
 const { canTransition } = require("../scripts/lib/state-machine");
+const { writeWorkflowState } = require("../scripts/lib/state-store");
 
 const ROOT = path.resolve(__dirname, "..");
 const TMP = path.join(ROOT, ".test-tmp");
@@ -50,11 +51,25 @@ function writeState(state) {
   fs.writeFileSync(statePath(), JSON.stringify(state, null, 2) + "\n");
 }
 
-function addLease(state, taskId, role, agentId = `agent-${taskId}-${role}`) {
+function writeSealedState(state) {
+  fs.mkdirSync(TMP, { recursive: true });
+  writeWorkflowState(statePath(), state, { writer: "test" });
+}
+
+function agentNameForRole(role) {
+  return `agent-spec-${role.replace(/_/g, "-")}`;
+}
+
+function sessionIdFor(taskId, role) {
+  return `ses_${`${taskId}${role}`.replace(/[^A-Za-z0-9]/g, "")}`;
+}
+
+function addLease(state, taskId, role, agentId = sessionIdFor(taskId, role)) {
   state.agent_dispatch.leases = state.agent_dispatch.leases || [];
   state.agent_dispatch.leases.push({
     task_id: taskId,
     role,
+    agent_name: agentNameForRole(role),
     agent_id: agentId,
     status: "leased",
     started_at: new Date().toISOString(),
@@ -64,6 +79,7 @@ function addLease(state, taskId, role, agentId = `agent-${taskId}-${role}`) {
   state.agent_dispatch.spawn_requests.push({
     id: `spawn-${taskId}-${role}`,
     role,
+    agent_name: agentNameForRole(role),
     lane: role.startsWith("frontend") ? "frontend" : "backend",
     task_ids: [taskId],
     status: "spawned",
@@ -262,7 +278,22 @@ describe("transition-task.js", () => {
 
     const result = runScript("transition-task.js", [statePath(), "FE-001", "active", "start"]);
     assert.notEqual(result.exitCode, 0);
-    assert.match(result.stderr, /frontend_dev subagent lease/);
+    assert.match(result.stderr, /valid frontend_dev OpenCode lease/);
+  });
+
+  it("rejects implemented without changed files and implementation evidence", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    task.implementation = { changed_files: [], evidence: [], deviations: [] };
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "implemented", "done"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /implementation\.changed_files is empty/);
   });
 
   it("rejects verified when the task MR is not merged", () => {
@@ -301,6 +332,38 @@ describe("transition-task.js", () => {
     assert.equal(taskAfter.loop.last_failure, "");
   });
 
+  it("rejects verified when another task already uses the same MR", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const first = devTask("FE-001", "frontend_dev", "frontend");
+    const second = devTask("FE-002", "frontend_dev", "frontend");
+    first.status = "testing";
+    second.status = "verified";
+    second.git_flow.merge_request_url = first.git_flow.merge_request_url;
+    state.task_graph.tasks = [first, second];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /each task requires its own MR/);
+  });
+
+  it("rejects verified when MR comment URL is only the PR URL", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.git_flow.merge_request_comment_url = task.git_flow.merge_request_url;
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /actual comment/);
+  });
+
   it("increments loop pressure only when a task fails", () => {
     const state = baseState();
     state.current_state = "implementation_in_progress";
@@ -318,8 +381,8 @@ describe("transition-task.js", () => {
     assert.equal(taskAfter.loop.last_failure, "unit tests failed");
 
     const retryState = loadState();
-    addLease(retryState, "FE-001", "frontend_dev", "agent-retry");
-    writeState(retryState);
+    addLease(retryState, "FE-001", "frontend_dev", "ses_retryfrontenddev");
+    writeSealedState(retryState);
 
     const retried = runScript("transition-task.js", [statePath(), "FE-001", "active", "retry"]);
     assert.equal(retried.exitCode, 0);
@@ -344,6 +407,62 @@ describe("transition-task.js", () => {
   });
 });
 
+describe("record-agent-spawn.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("rejects generic OpenCode agents", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.agent_dispatch.spawn_requests = [{
+      id: "spawn-fe",
+      role: "frontend_dev",
+      agent_name: "agent-spec-frontend-dev",
+      lane: "frontend",
+      task_ids: ["FE-001"],
+      status: "planned",
+      agent_id: "",
+      prompt: "test",
+      write_scope: ["frontend/"],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      blockers: []
+    }];
+    writeState(state);
+
+    const result = runScript("record-agent-spawn.js", [statePath(), "spawn-fe", "ses_generic", "--agent", "general"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /generic OpenCode agent/);
+  });
+
+  it("records only the exact expected OpenCode agent", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.agent_dispatch.spawn_requests = [{
+      id: "spawn-fe",
+      role: "frontend_dev",
+      agent_name: "agent-spec-frontend-dev",
+      lane: "frontend",
+      task_ids: ["FE-001"],
+      status: "planned",
+      agent_id: "",
+      prompt: "test",
+      write_scope: ["frontend/"],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      blockers: []
+    }];
+    writeState(state);
+
+    const result = runScript("record-agent-spawn.js", [statePath(), "spawn-fe", "ses_frontenddev", "--agent", "agent-spec-frontend-dev"]);
+    assert.equal(result.exitCode, 0);
+    const lease = loadState().agent_dispatch.leases[0];
+    assert.equal(lease.agent_name, "agent-spec-frontend-dev");
+    assert.equal(lease.agent_id, "ses_frontenddev");
+  });
+});
+
 describe("validate-state.js", () => {
   after(() => {
     fs.rmSync(TMP, { recursive: true, force: true });
@@ -364,6 +483,78 @@ describe("validate-state.js", () => {
     const result = runScript("validate-state.js", [statePath()]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /verified requires merged MR status/);
+  });
+
+  it("rejects active leases without exact OpenCode agent identity", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    state.agent_dispatch.leases = [{
+      task_id: "FE-001",
+      role: "frontend_dev",
+      agent_id: "direct-conversation-frontend_dev-fe-001",
+      status: "leased",
+      started_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60000).toISOString()
+    }];
+    writeState(state);
+
+    const result = runScript("validate-state.js", [statePath()]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /invalid frontend_dev lease/);
+  });
+
+  it("rejects direct edits after a state file is sealed", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    writeSealedState(state);
+
+    const tampered = loadState();
+    tampered.task_graph.tasks[0].status = "verified";
+    fs.writeFileSync(statePath(), JSON.stringify(tampered, null, 2) + "\n");
+
+    const result = runScript("validate-state.js", [statePath()]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /state hash mismatch/);
+  });
+});
+
+describe("seal-state.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("seals an operationally valid repaired state", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "verified";
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("seal-state.js", [statePath(), "manual repair"]);
+    assert.equal(result.exitCode, 0);
+    assert.equal(loadState().harness.state_integrity.sealed_by, "seal-state.js");
+  });
+
+  it("refuses to bless invalid workflow data", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "verified";
+    task.git_flow.merge_request_status = "open";
+    task.git_flow.merged = false;
+    task.git_flow.merge_commit = "";
+    task.git_flow.merge_evidence = [];
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("seal-state.js", [statePath(), "force bad state"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Refusing to seal invalid workflow state/);
+    assert.match(result.stderr, /verified requires merged MR status/);
+    assert.equal(loadState().harness.state_integrity, undefined);
   });
 });
 
@@ -427,6 +618,27 @@ describe("record-test-results.js", () => {
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /cannot record test results while task status is planned/);
   });
+
+  it("rejects test results from leases without exact test agent identity", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    state.task_graph.tasks = [task];
+    state.agent_dispatch.leases = [{
+      task_id: "FE-001",
+      role: "frontend_test",
+      agent_id: "ses_frontendtest",
+      status: "leased",
+      started_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60000).toISOString()
+    }];
+    writeState(state);
+
+    const result = runScript("record-test-results.js", [statePath(), "--task", "FE-001", "--status", "passed", "--role", "frontend_test", "--command", "npm test", "--output", "ok"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /missing valid frontend_test OpenCode lease/);
+  });
 });
 
 describe("plan-agent-dispatch.js", () => {
@@ -447,6 +659,7 @@ describe("plan-agent-dispatch.js", () => {
     const updated = loadState();
     const request = updated.agent_dispatch.spawn_requests.find((item) => item.task_ids.includes("FE-001"));
     assert.equal(request.role, "frontend_test");
+    assert.equal(request.agent_name, "agent-spec-frontend-test");
     assert.match(request.prompt, /record-test-results/);
   });
 });

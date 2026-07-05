@@ -11,6 +11,9 @@ node scripts/read-instructions.js runs/<DELIVERY_ID>/workflow-state.json --role 
 ```
 
 Use transition scripts. Do not edit `workflow-state.json` status fields by hand.
+Real run state is sealed by trusted harness writers. If context recovery or
+state validation reports an integrity failure, stop and repair before
+continuing.
 
 ## Compact Flow
 
@@ -57,10 +60,12 @@ Hard gates:
 
 - Orchestrator cannot write project files or run dev/test directly.
 - Project writes require `check-write-scope.js` with the matching active role.
-- Task transitions require a recorded spawn lease from `record-agent-spawn.js`.
+- Task transitions require a recorded spawn lease from `record-agent-spawn.js` with the exact `agent-spec-*` OpenCode agent name.
+- `implemented` requires scoped changed files and implementation evidence.
 - Test results require `testing` status and a matching test-agent lease.
 - `verified` requires changed files, tests, branch, push, MR URL, passed MR status comment URL, and merged MR evidence.
 - `submit-task.js` refuses unrelated dirty files.
+- `seal-state.js` is trusted manual repair only. It refuses invalid workflow data and must not be used as normal recovery.
 
 ## Commands
 
@@ -68,7 +73,7 @@ Hard gates:
 node scripts/transition.js runs/<DELIVERY_ID>/workflow-state.json <NEXT_STATE> "reason"
 node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> <STATUS> "reason"
 node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json --enable-auto
-node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <AGENT_ID>
+node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>
 node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> <ROLE>
 node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>" --merged --merge-commit "<SHA>"
 node scripts/reopen-delivery.js runs/<DELIVERY_ID>/workflow-state.json "reason"

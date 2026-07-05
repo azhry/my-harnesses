@@ -5,6 +5,8 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { hasValidLease, expectedAgentName } = require("./lib/agent-identity");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -21,7 +23,13 @@ if (!fs.existsSync(statePath)) {
   process.exit(1);
 }
 
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
 const task = tasks.find((item) => item.id === args.taskId);
 
@@ -37,8 +45,8 @@ if (!["implemented", "testing"].includes(task.status)) {
   console.error(`${args.taskId} is ${task.status}. submit-task.js only runs after implementation is recorded and the task is in implemented/testing.`);
   process.exit(1);
 }
-if (!hasActiveLease(state, args.taskId, task.role)) {
-  console.error(`${args.taskId}: missing recorded ${task.role} subagent lease. Run plan-agent-dispatch.js and record-agent-spawn.js before submitting.`);
+if (!hasValidLease(state, args.taskId, task.role)) {
+  console.error(`${args.taskId}: missing valid ${task.role} OpenCode lease. Spawn ${expectedAgentName(task.role)} and record it with record-agent-spawn.js --agent ${expectedAgentName(task.role)} before submitting.`);
   process.exit(1);
 }
 
@@ -69,8 +77,9 @@ if (outOfScope.length) {
 }
 if (initialDirtyFiles.length) {
   task.implementation = task.implementation || { changed_files: [], evidence: [], deviations: [] };
+  const stateFiles = initialDirtyFiles.map((file) => normalizeChangedFileForState(file, task));
   task.implementation.changed_files = [
-    ...new Set([...(task.implementation.changed_files || []), ...initialDirtyFiles])
+    ...new Set([...(task.implementation.changed_files || []), ...stateFiles])
   ];
   task.implementation.evidence = [
     ...new Set([...(task.implementation.evidence || []), `submit-task saw ${initialDirtyFiles.length} dirty scoped file(s)`])
@@ -153,7 +162,7 @@ task.git_flow = {
 };
 
 state.delivery.updated_at = new Date().toISOString();
-fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+writeWorkflowState(statePath, state, { writer: "submit-task.js" });
 
 if (!test.passed || blockers.length) {
   console.error("submit incomplete:");
@@ -179,19 +188,6 @@ function isDevTask(task) {
   return task.role === "frontend_dev" || task.role === "backend_dev";
 }
 
-function hasActiveLease(state, taskId, role) {
-  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
-    ? state.agent_dispatch.leases
-    : [];
-  return leases.some((lease) =>
-    lease &&
-    lease.task_id === taskId &&
-    lease.role === role &&
-    lease.agent_id &&
-    ["leased", "active"].includes(lease.status || "leased")
-  );
-}
-
 function dirtyFiles(repo) {
   const status = runRequired(repo, "git", ["status", "--porcelain"], "git status failed");
   return status.stdout
@@ -200,6 +196,15 @@ function dirtyFiles(repo) {
     .filter(Boolean)
     .flatMap(parseStatusPath)
     .filter(Boolean);
+}
+
+function normalizeChangedFileForState(filePath, task) {
+  const cleaned = cleanStatusPath(filePath).replace(/^\.\//, "");
+  const repos = task.scope && Array.isArray(task.scope.allowed_repos) ? task.scope.allowed_repos.filter(Boolean) : [];
+  if (repos.length === 1 && !cleaned.startsWith(`${repos[0]}/`)) {
+    return `${repos[0]}/${cleaned}`;
+  }
+  return cleaned;
 }
 
 function parseStatusPath(line) {
@@ -336,7 +341,16 @@ function commentMergeRequest(repo, prRef, details) {
   ].join("\n");
   const result = run(repo, "gh", ["pr", "comment", String(prRef), "--body", body]);
   if (!result.ok) return { ok: false, url: "", evidence: [], error: result.stderr || result.stdout || result.error };
-  return { ok: true, url: result.stdout.trim(), evidence: [`commented MR status ${details.status}`] };
+  const url = result.stdout.trim();
+  if (!isMergeRequestCommentUrl(url)) {
+    return { ok: false, url: "", evidence: [], error: "gh pr comment did not return a real comment URL" };
+  }
+  return { ok: true, url, evidence: [`commented MR status ${details.status}`, url] };
+}
+
+function isMergeRequestCommentUrl(commentUrl) {
+  const normalizedComment = String(commentUrl || "").replace(/\/$/, "");
+  return /#(note|discussion_r)_?\d+/i.test(normalizedComment) || /#issuecomment-\d+/i.test(normalizedComment);
 }
 
 function mergeMergeRequest(repo, prRef, policy) {

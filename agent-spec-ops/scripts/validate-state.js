@@ -4,6 +4,8 @@
 const fs = require("fs");
 const path = require("path");
 const { states } = require("./lib/state-machine");
+const { expectedAgentName, leaseIdentityErrors, validateSpawnIdentity } = require("./lib/agent-identity");
+const { stateIntegrityErrors } = require("./lib/state-store");
 
 const file = process.argv[2];
 if (!file) {
@@ -13,6 +15,10 @@ if (!file) {
 
 const state = JSON.parse(fs.readFileSync(path.resolve(file), "utf8"));
 const errors = [];
+
+for (const error of stateIntegrityErrors(file, state)) {
+  errors.push(error);
+}
 
 if (!state.harness || state.harness.name !== "agent-spec-ops") {
   errors.push("harness.name must be agent-spec-ops");
@@ -24,6 +30,8 @@ if (!states.includes(state.current_state)) {
 
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
 for (const task of tasks) validateTask(task, errors);
+validateAgentDispatch(state, errors);
+validateUniqueMergeRequests(tasks, errors);
 
 const index = states.indexOf(state.current_state);
 const atOrAfter = (name) => index >= states.indexOf(name) && state.current_state !== "blocked";
@@ -103,7 +111,18 @@ function validateTask(task, result) {
   if (!task.scope || !Array.isArray(task.scope.allowed_paths) || !task.scope.allowed_paths.length) result.push(`${task.id}: scope.allowed_paths is required`);
   if (!["frontend", "backend", "planning", "product", "handoff", "integration"].includes(task.lane)) result.push(`${task.id}: lane is invalid`);
   if (!["planned", "active", "implemented", "testing", "failed", "verified", "blocked", "waived", "not_applicable"].includes(task.status)) result.push(`${task.id}: status is invalid`);
+  if (task.status === "implemented" && isDevTask(task)) validateImplementedTask(task, result);
   if (task.status === "verified") validateVerifiedTask(task, result);
+}
+
+function validateImplementedTask(task, result) {
+  const implementation = task.implementation || {};
+  if (!Array.isArray(implementation.changed_files) || !implementation.changed_files.length) {
+    result.push(`${task.id}: implemented requires implementation.changed_files`);
+  }
+  if (!Array.isArray(implementation.evidence) || !implementation.evidence.length) {
+    result.push(`${task.id}: implemented requires implementation.evidence`);
+  }
 }
 
 function validateVerifiedTask(task, result) {
@@ -143,13 +162,57 @@ function validateVerifiedDevGit(task, result) {
   if (git.merge_request_comment_status !== "passed" || !git.merge_request_comment_url || !Array.isArray(git.merge_request_comment_evidence) || !git.merge_request_comment_evidence.length) {
     result.push(`${task.id}: verified requires passed MR status comment evidence`);
   }
+  if (git.merge_request_comment_url && !isMergeRequestCommentUrl(git.merge_request_url, git.merge_request_comment_url)) {
+    result.push(`${task.id}: merge_request_comment_url must be a real MR comment URL, not the MR URL itself`);
+  }
   if (git.merged !== true || !git.merge_commit || !Array.isArray(git.merge_evidence) || !git.merge_evidence.length) {
     result.push(`${task.id}: verified requires merged=true, merge_commit, and merge_evidence`);
   }
 }
 
+function validateAgentDispatch(candidate, result) {
+  const dispatch = candidate.agent_dispatch || {};
+  for (const request of Array.isArray(dispatch.spawn_requests) ? dispatch.spawn_requests : []) {
+    const expected = expectedAgentName(request.role);
+    if (!expected) continue;
+    if (request.agent_name && request.agent_name !== expected) {
+      result.push(`${request.id}: spawn request for ${request.role} must use ${expected}, got ${request.agent_name}`);
+    }
+    if (["spawned", "active"].includes(request.status)) {
+      const errors = validateSpawnIdentity(request.role, request.agent_id, request.agent_name);
+      for (const error of errors) result.push(`${request.id}: ${error}`);
+    }
+  }
+  for (const lease of Array.isArray(dispatch.leases) ? dispatch.leases : []) {
+    if (!["requested", "leased", "active"].includes(lease.status || "leased")) continue;
+    for (const error of leaseIdentityErrors(lease)) {
+      result.push(`${lease.task_id || "(unknown task)"}: invalid ${lease.role || "(unknown role)"} lease: ${error}`);
+    }
+  }
+}
+
+function validateUniqueMergeRequests(items, result) {
+  const seen = new Map();
+  for (const task of items) {
+    if (!isDevTask(task) || !task.git_flow || !task.git_flow.merge_request_url) continue;
+    const url = task.git_flow.merge_request_url;
+    if (!seen.has(url)) {
+      seen.set(url, task.id);
+      continue;
+    }
+    result.push(`${task.id}: merge_request_url is shared with ${seen.get(url)}; each task requires its own MR`);
+  }
+}
+
 function isDevTask(task) {
   return task.role === "frontend_dev" || task.role === "backend_dev";
+}
+
+function isMergeRequestCommentUrl(mrUrl, commentUrl) {
+  const normalizedMr = String(mrUrl || "").replace(/\/$/, "");
+  const normalizedComment = String(commentUrl || "").replace(/\/$/, "");
+  if (!normalizedComment || normalizedComment === normalizedMr) return false;
+  return /#(issuecomment|discussion_r|note)_?\d+/i.test(normalizedComment) || /#issuecomment-\d+/i.test(normalizedComment);
 }
 
 function requireArtifact(candidate, key, result) {

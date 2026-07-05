@@ -43,6 +43,7 @@ const requiredFiles = [
   "ui/monitor/app.js",
   "scripts/lib/state-machine.js",
   "scripts/lib/memory-store.js",
+  "scripts/lib/state-store.js",
   "scripts/lib/monitor-data.js",
   "scripts/lib/env-loader.js",
   "scripts/lib/policy.js",
@@ -68,6 +69,7 @@ const requiredFiles = [
   "scripts/check-write-scope.js",
   "scripts/check-harness-integrity.js",
   "scripts/check-linear-connectivity.js",
+  "scripts/seal-state.js",
   "scripts/verify-integration.js",
   "scripts/validate-state.js"
 ];

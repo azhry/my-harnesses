@@ -7,6 +7,7 @@ const { appendEvent } = require("./lib/memory-store");
 const { getLinearConfig } = require("./lib/linear-config");
 const { enforcePolicy, safeLinearMetadata } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -26,7 +27,13 @@ const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 const statePath = path.resolve(args.stateFile);
 loadSecretEnv(statePath);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 try {
   enforcePolicy(statePath, { phase: "linear_task_sync" });
 } catch (error) {
@@ -201,7 +208,7 @@ for (const task of targetTasks) {
         if (newId) {
           task.linear_id = newId;
           state.delivery.updated_at = new Date().toISOString();
-          fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+          writeWorkflowState(statePath, state, { writer: "sync-linear-task.js" });
           console.log(`Created Linear issue ${newId} for ${task.id}`);
           synced++;
         }
@@ -234,7 +241,7 @@ for (const task of targetTasks) {
       path: state.memory.local_tasks_path || "tasks.json"
     };
     state.delivery.updated_at = new Date().toISOString();
-    fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+    writeWorkflowState(statePath, state, { writer: "sync-linear-task.js" });
   }
 
   appendEvent(statePath, {

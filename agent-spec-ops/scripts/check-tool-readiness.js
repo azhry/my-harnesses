@@ -8,6 +8,7 @@ const { spawnSync, execSync } = require("child_process");
 const { ensureRunMemory } = require("./lib/memory-store");
 const { safeLinearMetadata } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 const stateFile = args.stateFile;
@@ -453,7 +454,13 @@ function updateStateFile(file, readiness) {
     return;
   }
   const statePath = path.resolve(file);
-  let state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  let state;
+  try {
+    state = loadWorkflowState(statePath);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
   const now = readiness.checked_at;
   state.tool_readiness = readiness;
   if (readiness.choices && readiness.choices.product_tracker === "linear") {
@@ -485,7 +492,7 @@ function updateStateFile(file, readiness) {
       path: ""
     };
   }
-  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  writeWorkflowState(statePath, state, { writer: "check-tool-readiness.js" });
   console.log(`Updated ${statePath}`);
 }
 
@@ -495,7 +502,7 @@ async function main() {
     const statePath = path.resolve(stateFile);
     let state = null;
     try {
-      state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+      state = loadWorkflowState(statePath);
     } catch (e) {
       console.error(`Cannot read state file: ${statePath}`);
       process.exit(1);

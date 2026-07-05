@@ -3,6 +3,8 @@
 
 const fs = require("fs");
 const path = require("path");
+const { expectedAgentName } = require("./lib/agent-identity");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = process.argv.slice(2);
 const file = args.find((arg) => !arg.startsWith("--"));
@@ -14,7 +16,13 @@ if (!file) {
 }
 
 const statePath = path.resolve(file);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const now = new Date().toISOString();
 const tasks = state.task_graph.tasks || [];
 const taskById = new Map(tasks.map((task) => [task.id, task]));
@@ -243,6 +251,7 @@ if (!shouldPlan) {
       return {
         id: `spawn-${dispatchRole}-${task.id}-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
         role: dispatchRole,
+        agent_name: expectedAgentName(dispatchRole),
         lane: task.lane,
         task_ids: [task.id],
         status: "planned",
@@ -275,13 +284,13 @@ state.log.push({
   note: `Agent dispatch planning completed: ${state.agent_dispatch.status}`
 });
 
-fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+writeWorkflowState(statePath, state, { writer: "plan-agent-dispatch.js" });
 
 const planned = (state.agent_dispatch.spawn_requests || []).filter((request) => request.status === "planned");
 console.log(`Agent dispatch status: ${state.agent_dispatch.status}`);
 console.log(`Planned spawn requests: ${planned.length}`);
 for (const request of planned) {
-  console.log(`- ${request.id}: ${request.role} ${request.task_ids.join(", ")} scope=${request.write_scope.join(", ")}`);
+  console.log(`- ${request.id}: ${request.agent_name || expectedAgentName(request.role)} ${request.task_ids.join(", ")} scope=${request.write_scope.join(", ")}`);
 }
 if (state.agent_dispatch.status === "blocked") {
   process.exit(2);

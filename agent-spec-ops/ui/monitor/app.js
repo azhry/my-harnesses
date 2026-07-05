@@ -15,6 +15,7 @@ const SECTION_HELP = {
   "Current State": "The active checkpoint in the compact workflow.",
   "Workflow": "The full compact state machine, including rework returning to task breakdown.",
   "Run Snapshot": "Tool readiness, Linear/code-host setup, and last update time.",
+  "State Integrity": "Whether workflow-state.json was last written by a trusted harness script.",
   "Human Gates": "Only the three human gates: product requirements, system rules, and implementation review.",
   "Loop Pressure": "Failed dev/test retries. Attempt 3 means the user must intervene.",
   "Task Lanes": "Parallel frontend/backend implementation lanes with separate dev and test tasks.",
@@ -84,7 +85,7 @@ function renderSignals(summary, run) {
     ["Verified", summary.verified_tasks],
     ["Failed", summary.failed_tasks],
     ["Gates", summary.pending_gates],
-    ["Spawns", run && run.dispatch ? run.dispatch.planned_requests : 0]
+    ["Unsafe", summary.unsafe_runs || 0]
   ];
   summaryGrid.innerHTML = metrics.map(([label, value], index) => `
     <div class="signal">
@@ -118,6 +119,7 @@ function renderRunStack(runs) {
         <span class="run-entry-foot">
           ${microTag(`${run.tasks.total} tasks`)}
           ${microTag(`${run.memory.event_count} events`)}
+          ${run.integrity && run.integrity.status === "failed" ? microTag("unsafe", "tag-danger") : ""}
           ${run.gates.waiting ? microTag(`${run.gates.waiting} gates`) : ""}
         </span>
       </span>
@@ -163,6 +165,7 @@ function renderRunDetail(run) {
       ${run.human_instructions && Object.keys(run.human_instructions).length ? module("Review Instructions", reviewInstructionsHtml(run.human_instructions), "span-12") : ""}
       ${module("Workflow", workflowHtml(run.current_state), "span-12")}
       ${module("Run Snapshot", snapshotHtml(run), "span-4")}
+      ${module("State Integrity", integrityHtml(run.integrity), "span-4")}
       ${module("Human Gates", gatesHtml(run.gates.entries), "span-4")}
       ${module("Loop Pressure", loopsHtml(run.loops.entries), "span-4")}
       ${module("Task Lanes", taskLanesHtml(run.tasks.entries), "span-12")}
@@ -174,6 +177,23 @@ function renderRunDetail(run) {
       ${module("Role Board", rolesHtml(run.roles), "span-4")}
       ${module("Memory Stream", eventsHtml(run.recent_events), "span-8")}
     </div>
+  `;
+}
+
+function integrityHtml(integrity) {
+  const info = integrity || { status: "unknown", errors: [] };
+  return `
+    <div class="datum-grid">
+      ${datum("Status", tag(info.status))}
+      ${datum("Writer", info.sealed_by || "n/a")}
+      ${datum("Sealed", formatDateTime(info.sealed_at))}
+      ${datum("Errors", Array.isArray(info.errors) ? info.errors.length : 0)}
+    </div>
+    ${Array.isArray(info.errors) && info.errors.length ? `<div class="rail" style="margin-top:10px">${info.errors.map((error) => `
+      <div class="rail-row">
+        <div class="row-title">${escapeHtml(error)}</div>
+      </div>
+    `).join("")}</div>` : ""}
   `;
 }
 
@@ -516,10 +536,10 @@ function microTag(value, className = "tag-muted") {
 
 function statusClass(value) {
   const status = String(value || "unknown");
-  if (["done", "approved", "passed", "ready", "verified", "complete", "synced", "available", "merged"].includes(status)) return "tag-ok";
+  if (["done", "approved", "passed", "ready", "verified", "complete", "synced", "available", "merged", "sealed"].includes(status)) return "tag-ok";
   if (["blocked", "failed", "error", "missing", "requested_changes"].includes(status)) return "tag-danger";
   if (["active", "in_progress", "testing", "planned", "open", "local_only", "partial"].includes(status)) return "tag-work";
-  if (["waiting", "ready_for_review", "warning", "draft"].includes(status)) return "tag-warn";
+  if (["waiting", "ready_for_review", "warning", "draft", "unsealed"].includes(status)) return "tag-warn";
   if (["candidate", "promoted", "note", "observed", "pattern"].includes(status)) return "tag-note";
   return "tag-muted";
 }

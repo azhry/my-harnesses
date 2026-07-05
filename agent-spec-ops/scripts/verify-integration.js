@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const { loadWorkflowState } = require("./lib/state-store");
 
 const file = process.argv[2];
 
@@ -14,7 +15,13 @@ if (!file) {
 }
 
 const statePath = path.resolve(file);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const harnessRoot = path.resolve(__dirname, "..");
 
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];

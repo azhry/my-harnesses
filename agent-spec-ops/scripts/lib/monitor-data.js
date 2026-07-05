@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { stateIntegrityErrors } = require("./state-store");
 
 const root = path.resolve(__dirname, "../..");
 const runsDir = path.join(root, "runs");
@@ -41,9 +42,10 @@ function runIds() {
 
 function loadRun(id) {
   const runDir = path.join(runsDir, id);
-  const state = readJson(path.join(runDir, "workflow-state.json"), {});
+  const statePath = path.join(runDir, "workflow-state.json");
+  const state = readJson(statePath, {});
   const events = readNdjson(path.join(runDir, "events.ndjson"));
-  return buildRunView(id, state, events);
+  return buildRunView(id, state, events, statePath);
 }
 
 function loadDashboardData() {
@@ -59,7 +61,7 @@ function loadDashboardData() {
   };
 }
 
-function buildRunView(id, state, events) {
+function buildRunView(id, state, events, statePath) {
   const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
   const dispatch = state.agent_dispatch || {};
   const integration = state.integration || {};
@@ -82,10 +84,22 @@ function buildRunView(id, state, events) {
     integration: summarizeIntegration(integration),
     dispatch: summarizeDispatch(dispatch),
     memory: { event_count: events.length },
+    integrity: summarizeIntegritySeal(statePath, state),
     human_instructions: state.human_instructions || {},
     test_results: summarizeTestResults(tasks),
     recent_events: events.slice(-20).reverse(),
     log: Array.isArray(state.log) ? state.log.slice(-20).reverse() : []
+  };
+}
+
+function summarizeIntegritySeal(statePath, state) {
+  const errors = stateIntegrityErrors(statePath, state || {});
+  const seal = state && state.harness && state.harness.state_integrity;
+  return {
+    status: errors.length ? "failed" : seal ? "sealed" : "unsealed",
+    sealed_at: seal && seal.sealed_at ? seal.sealed_at : "",
+    sealed_by: seal && seal.sealed_by ? seal.sealed_by : "",
+    errors
   };
 }
 
@@ -274,6 +288,7 @@ function summarizeAllRuns(runs) {
     verified_tasks: runs.reduce((total, run) => total + run.tasks.verified, 0),
     total_tasks: runs.reduce((total, run) => total + run.tasks.total, 0),
     pending_gates: runs.reduce((total, run) => total + run.gates.waiting, 0),
+    unsafe_runs: runs.filter((run) => run.integrity && run.integrity.status === "failed").length,
     active_loops: runs.reduce((total, run) => total + run.loops.active, 0),
     failed_loops: runs.reduce((total, run) => total + run.loops.failed, 0),
     memory_events: runs.reduce((total, run) => total + run.memory.event_count, 0),

@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { loadWorkflowState } = require("./lib/state-store");
 
 const [file, targetPath, role] = process.argv.slice(2);
 
@@ -22,7 +23,13 @@ if (!fs.existsSync(statePath)) {
   process.exit(1);
 }
 
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const harnessRoot = path.resolve(__dirname, "..");
 const resolvedTarget = path.resolve(targetPath);
 

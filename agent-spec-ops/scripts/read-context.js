@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { transitions } = require("./lib/state-machine");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { loadWorkflowState } = require("./lib/state-store");
 
 const file = process.argv[2];
 const role = argValue("--role") || "orchestrator";
@@ -16,7 +17,13 @@ if (!file) {
 
 const statePath = path.resolve(file);
 loadSecretEnv(statePath);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const runDir = path.dirname(statePath);
 const delivery = state.delivery || {};
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];

@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { transitions } = require("./lib/state-machine");
+const { loadWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.stateFile) {
@@ -11,7 +12,13 @@ if (!args.stateFile) {
   process.exit(1);
 }
 
-const state = JSON.parse(fs.readFileSync(path.resolve(args.stateFile), "utf8"));
+let state;
+try {
+  state = loadWorkflowState(path.resolve(args.stateFile));
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const current = state.current_state || "unknown";
 const allowed = transitions[current] || [];
 const role = args.role || inferRole(state);

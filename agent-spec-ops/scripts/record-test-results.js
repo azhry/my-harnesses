@@ -4,6 +4,8 @@
 const fs = require("fs");
 const path = require("path");
 const { appendEvent } = require("./lib/memory-store");
+const { hasValidLease, expectedAgentName } = require("./lib/agent-identity");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -31,7 +33,13 @@ if (!args.stateFile || !args.taskId) {
 }
 
 const statePath = path.resolve(args.stateFile);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
 const taskIndex = tasks.findIndex((t) => t.id === args.taskId);
 
@@ -59,8 +67,12 @@ if (task.status !== "testing") {
   console.error(`${args.taskId}: cannot record test results while task status is ${task.status}. Transition to testing after spawning ${expectedRole}.`);
   process.exit(1);
 }
-if (!hasActiveLease(state, args.taskId, expectedRole)) {
-  console.error(`${args.taskId}: missing recorded ${expectedRole} subagent lease. Run plan-agent-dispatch.js and record-agent-spawn.js before testing.`);
+if (!hasValidLease(state, args.taskId, expectedRole)) {
+  console.error(`${args.taskId}: missing valid ${expectedRole} OpenCode lease. Spawn ${expectedAgentName(expectedRole)} and record it with record-agent-spawn.js --agent ${expectedAgentName(expectedRole)} before testing.`);
+  process.exit(1);
+}
+if (args.mrCommentUrl && !isMergeRequestCommentUrl(args.mrUrl || task.git_flow && task.git_flow.merge_request_url, args.mrCommentUrl)) {
+  console.error(`${args.taskId}: --mr-comment-url must point to a real MR comment, not the MR itself.`);
   process.exit(1);
 }
 
@@ -141,7 +153,7 @@ if (args.mrUrl || args.merged || args.mergeCommit || args.mergeEvidence.length |
 }
 
 state.delivery.updated_at = now;
-fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+writeWorkflowState(statePath, state, { writer: "record-test-results.js" });
 
 const summary = args.status === "passed"
   ? `Tests passed for ${args.taskId}`
@@ -288,22 +300,16 @@ function ensureGitFlow(task) {
   return task.git_flow;
 }
 
+function isMergeRequestCommentUrl(mrUrl, commentUrl) {
+  const normalizedMr = String(mrUrl || "").replace(/\/$/, "");
+  const normalizedComment = String(commentUrl || "").replace(/\/$/, "");
+  if (!normalizedComment || normalizedComment === normalizedMr) return false;
+  return /#(note|discussion_r)_?\d+/i.test(normalizedComment) || /#issuecomment-\d+/i.test(normalizedComment);
+}
+
 function expectedTestRole(task) {
   if (task.role === "frontend_dev") return "frontend_test";
   if (task.role === "backend_dev") return "backend_test";
   if (task.role === "frontend_test" || task.role === "backend_test") return task.role;
   return "";
-}
-
-function hasActiveLease(state, taskId, role) {
-  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
-    ? state.agent_dispatch.leases
-    : [];
-  return leases.some((lease) =>
-    lease &&
-    lease.task_id === taskId &&
-    lease.role === role &&
-    lease.agent_id &&
-    ["leased", "active"].includes(lease.status || "leased")
-  );
 }

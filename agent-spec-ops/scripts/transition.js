@@ -8,6 +8,7 @@ const { appendEvent } = require("./lib/memory-store");
 const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { enforcePolicy } = require("./lib/policy");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const [file, nextState, ...noteParts] = process.argv.slice(2);
 const note = noteParts.join(" ").trim();
@@ -25,7 +26,13 @@ if (!states.includes(nextState)) {
 
 const statePath = path.resolve(file);
 loadSecretEnv(statePath);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const currentState = state.current_state;
 
 if (!canTransition(currentState, nextState)) {
@@ -75,7 +82,7 @@ state.log.push({
   note: note || `Transitioned from ${currentState} to ${nextState}.`
 });
 
-fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+writeWorkflowState(statePath, state, { writer: "transition.js" });
 updateSessionMarker(statePath, {
   state: nextState,
   state_updated_at: state.delivery.updated_at

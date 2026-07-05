@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { appendEvent } = require("./lib/memory-store");
+const { loadWorkflowState } = require("./lib/state-store");
 
 const [file, taskId] = process.argv.slice(2);
 
@@ -13,7 +14,13 @@ if (!file || !taskId) {
 }
 
 const statePath = path.resolve(file);
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
 const task = tasks.find((item) => item.id === taskId);
 

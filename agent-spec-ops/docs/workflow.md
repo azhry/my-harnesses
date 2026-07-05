@@ -16,6 +16,11 @@ intake -> tool_readiness -> knowledge_discovery -> product_requirements
 
 Human rework always routes to `task_breakdown`.
 
+Real run state is sealed after trusted script writes. If the seal is missing or
+broken, do not continue the run; repair the state intentionally, then reseal it
+with `seal-state.js`. The repair sealer first runs validation against the
+repaired data and refuses to bless a state that still has workflow errors.
+
 ## Implementation
 
 Frontend and backend lanes run in parallel when scopes do not overlap.
@@ -25,5 +30,6 @@ frontend_dev -> frontend_test -> push -> MR -> MR comment -> merge
 backend_dev  -> backend_test  -> push -> MR -> MR comment -> merge
 ```
 
-Dev and test must be separate agents. Test failure returns to dev. A loop that
-reaches 3 attempts requires user intervention.
+Dev and test must be separate `agent-spec-*` OpenCode agents. Test failure
+returns to dev. A loop that reaches 3 attempts requires user intervention.
+Each task needs its own MR; shared task MRs are rejected.

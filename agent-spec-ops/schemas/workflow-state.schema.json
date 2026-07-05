@@ -32,7 +32,8 @@
       "additionalProperties": false,
       "properties": {
         "name": { "const": "agent-spec-ops" },
-        "version": { "type": "string" }
+        "version": { "type": "string" },
+        "state_integrity": { "$ref": "#/$defs/stateIntegrity" }
       }
     },
     "workspace_root": { "type": "string" },
@@ -738,6 +739,7 @@
       "properties": {
         "id": { "type": "string" },
         "role": { "$ref": "#/$defs/roleName" },
+        "agent_name": { "type": "string" },
         "lane": { "enum": ["frontend", "backend", "integration", "handoff"] },
         "task_ids": { "type": "array", "items": { "type": "string" } },
         "status": { "enum": ["planned", "spawned", "active", "complete", "blocked", "cancelled"] },
@@ -756,10 +758,23 @@
       "properties": {
         "task_id": { "type": "string" },
         "role": { "$ref": "#/$defs/roleName" },
+        "agent_name": { "type": "string" },
         "agent_id": { "type": "string" },
-        "status": { "enum": ["requested", "leased", "released", "complete", "expired"] },
+        "status": { "enum": ["requested", "leased", "active", "released", "complete", "completed", "expired"] },
         "started_at": { "type": "string" },
-        "expires_at": { "type": "string" }
+        "expires_at": { "type": "string" },
+        "completed_at": { "type": "string" }
+      }
+    },
+    "stateIntegrity": {
+      "type": "object",
+      "required": ["algorithm", "hash", "sealed_at", "sealed_by"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "const": "sha256:agent-spec-ops-state-v1" },
+        "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sealed_at": { "type": "string" },
+        "sealed_by": { "type": "string" }
       }
     },
     "gate": {

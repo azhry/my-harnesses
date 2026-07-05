@@ -6,6 +6,7 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const { loadSecretEnv } = require("./lib/env-loader");
+const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -39,7 +40,13 @@ if (!args.url) {
   process.exit(1);
 }
 
-const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+let state;
+try {
+  state = loadWorkflowState(statePath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const runDir = path.dirname(statePath);
 const outputDir = path.join(runDir, "design-assets");
 fs.mkdirSync(outputDir, { recursive: true });
@@ -269,7 +276,7 @@ function markDesignAssets(status, files, note) {
     state: state.current_state,
     note
   });
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+  writeWorkflowState(statePath, state, { writer: "fetch-stitch-designs.js" });
 }
 
 function slug(value) {

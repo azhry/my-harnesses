@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { loadWorkflowState } = require("./state-store");
 
 const root = path.resolve(__dirname, "../..");
 const MAX_AGE_MS = 5 * 60 * 1000;
@@ -16,7 +17,7 @@ function markerPathForState(stateFile) {
   let deliveryId = "";
   try {
     if (fs.existsSync(resolved)) {
-      const state = JSON.parse(fs.readFileSync(resolved, "utf8"));
+      const state = loadWorkflowState(resolved, { allowUnsealed: true });
       deliveryId = state.delivery && state.delivery.id ? state.delivery.id : "";
     }
   } catch {}
@@ -75,7 +76,7 @@ function checkContext(label, stateFile) {
   }
   if (stateFile && fs.existsSync(path.resolve(stateFile))) {
     try {
-      const state = JSON.parse(fs.readFileSync(path.resolve(stateFile), "utf8"));
+      const state = loadWorkflowState(path.resolve(stateFile));
       const stateUpdatedAt = state.delivery && state.delivery.updated_at ? state.delivery.updated_at : "";
       if (stateUpdatedAt && marker.state_updated_at && stateUpdatedAt !== marker.state_updated_at) {
         console.error(`⚠  State changed after context recovery. Refresh before mutating state:`);

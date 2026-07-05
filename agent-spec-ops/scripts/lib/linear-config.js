@@ -3,10 +3,11 @@
 const fs = require("fs");
 const path = require("path");
 const { loadSecretEnv } = require("./env-loader");
+const { loadWorkflowState } = require("./state-store");
 
 function loadState(statePath) {
   try {
-    return JSON.parse(fs.readFileSync(path.resolve(statePath), "utf8"));
+    return loadWorkflowState(path.resolve(statePath));
   } catch {
     return null;
   }

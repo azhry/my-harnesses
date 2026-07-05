@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { loadWorkflowState, writeWorkflowState } = require("./state-store");
 
 const root = path.resolve(__dirname, "../..");
 
@@ -43,11 +44,11 @@ function writeJson(file, value) {
 }
 
 function loadState(statePath) {
-  return loadJson(path.resolve(statePath));
+  return loadWorkflowState(path.resolve(statePath), { allowUnsealed: true });
 }
 
 function writeState(statePath, state) {
-  writeJson(path.resolve(statePath), state);
+  writeWorkflowState(path.resolve(statePath), state, { writer: "memory-store" });
 }
 
 function readNdjson(file) {

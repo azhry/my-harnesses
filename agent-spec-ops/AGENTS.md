@@ -15,6 +15,12 @@ orchestrators. If a prompt was not launched through `/agent-spec-spawn` or
 harness command/agent before planning, spawning, editing, submitting, or
 merging.
 
+For Linear status disputes, session evaluation, or "is this still backlog/in
+progress/done?" checks, run `node scripts/sync-linear-task.js
+runs/<DELIVERY_ID>/workflow-state.json --audit` and trust that issue-by-issue
+report. Do not hand-roll Linear GraphQL filters in agent chat; they miss
+paginated issues, stale ids, project filters, and active tasks.
+
 ## Required Start
 
 ```bash
@@ -89,6 +95,7 @@ node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID>
 node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json --enable-auto
 node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>
 node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> <ROLE>
+node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --audit
 node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>"
 node scripts/submit-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --commit-msg "feat: <TASK_ID>: summary" --test-command "<OPTIONAL_RECHECK_COMMAND>"
 node scripts/reopen-delivery.js runs/<DELIVERY_ID>/workflow-state.json "reason"

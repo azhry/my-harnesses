@@ -18,7 +18,8 @@ if (!args.stateFile) {
     "Options:",
     "  --task TASK_ID    Sync a specific task (omit to sync all tasks)",
     "  --dry-run         Show what would be synced without making changes",
-    "  --create          Create missing Linear issues (default: update only)"
+    "  --create          Create missing Linear issues (default: update only)",
+    "  --audit           Read-only audit of workflow task status vs Linear"
   ].join("\n"));
   process.exit(1);
 }
@@ -52,6 +53,10 @@ const allHaveIds = targetTasks.length > 0 && targetTasks.every((t) => t.linear_i
 const anyHaveIds = targetTasks.some((t) => t.linear_id);
 
 if (!LINEAR_API_KEY) {
+  if (args.audit) {
+    console.error("LINEAR_API_KEY not set - cannot audit Linear status");
+    process.exit(1);
+  }
   if (allHaveIds) {
     console.log(`All ${targetTasks.length} task(s) already have Linear IDs — no sync needed`);
     process.exit(0);
@@ -66,6 +71,18 @@ if (!LINEAR_API_KEY) {
 if (!targetTasks.length) {
   console.log(`No tasks to sync`);
   process.exit(0);
+}
+
+if (args.audit) {
+  auditLinear().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+} else {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
 }
 
 let synced = 0;
@@ -261,10 +278,130 @@ for (const task of targetTasks) {
   }
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+async function auditLinear() {
+  const rows = [];
+  const counts = {
+    ok: 0,
+    nonTerminal: 0,
+    mismatch: 0,
+    missingLinearId: 0,
+    notFound: 0,
+    errors: 0
+  };
+
+  for (const task of targetTasks) {
+    const expected = linearStatusFor(task.status);
+    const terminal = ["verified", "waived", "not_applicable"].includes(task.status || "");
+    const row = {
+      task,
+      expected,
+      issue: null,
+      actual: "",
+      problem: ""
+    };
+
+    if (!terminal) counts.nonTerminal++;
+
+    if (!task.linear_id) {
+      row.problem = "NO_LINEAR_ID";
+      counts.missingLinearId++;
+      rows.push(row);
+      continue;
+    }
+
+    try {
+      row.issue = await fetchIssue(task.linear_id);
+    } catch (error) {
+      row.problem = `ERROR: ${formatError(error)}`;
+      counts.errors++;
+      rows.push(row);
+      continue;
+    }
+
+    if (!row.issue) {
+      row.problem = "NOT_FOUND";
+      counts.notFound++;
+      rows.push(row);
+      continue;
+    }
+
+    row.actual = linearStatusFromIssue(row.issue);
+    if (row.actual !== expected) {
+      row.problem = `MISMATCH expected ${expected}, got ${row.actual}`;
+      counts.mismatch++;
+      rows.push(row);
+      continue;
+    }
+
+    counts.ok++;
+    if (!terminal) rows.push(row);
+  }
+
+  console.log(`LINEAR AUDIT ${deliveryId}${args.taskId ? ` ${args.taskId}` : ""}`);
+  console.log(`Tasks checked: ${targetTasks.length}`);
+
+  if (rows.length) {
+    console.log("");
+    console.log("Tasks needing attention:");
+    for (const row of rows) {
+      console.log(formatAuditRow(row));
+    }
+  } else {
+    console.log("");
+    console.log("No non-terminal tasks or Linear mismatches found.");
+  }
+
+  console.log("");
+  console.log([
+    `Summary: ok=${counts.ok}`,
+    `non_terminal=${counts.nonTerminal}`,
+    `mismatch=${counts.mismatch}`,
+    `not_found=${counts.notFound}`,
+    `missing_linear_id=${counts.missingLinearId}`,
+    `errors=${counts.errors}`
+  ].join(" "));
+
+  if (counts.mismatch || counts.notFound || counts.missingLinearId || counts.errors) {
+    process.exit(1);
+  }
+}
+
+async function fetchIssue(issueId) {
+  const result = await graphql({
+    query: "query($id: String!) { issue(id: $id) { id identifier title state { name type } project { id name } } }",
+    variables: { id: issueId }
+  });
+  if (result.errors) {
+    const message = result.errors.map((error) => error.message).join("; ");
+    if (/not found/i.test(message)) return null;
+    throw new Error(message);
+  }
+  return result.data && result.data.issue ? result.data.issue : null;
+}
+
+function formatAuditRow(row) {
+  const task = row.task;
+  const issue = row.issue;
+  const linear = issue
+    ? `${issue.identifier} ${issue.state && issue.state.name ? issue.state.name : "unknown"} (${issue.state && issue.state.type ? issue.state.type : "unknown"})`
+    : task.linear_id || "NO_LINEAR_ID";
+  const problem = row.problem ? ` :: ${row.problem}` : "";
+  return `- ${task.id} ${task.status} -> expected ${row.expected}; Linear ${linear}${problem} :: ${task.title || ""}`;
+}
+
+function formatError(error) {
+  const parts = [];
+  if (error && error.message) parts.push(error.message);
+  if (error && error.code) parts.push(error.code);
+  if (error && Array.isArray(error.errors)) {
+    for (const inner of error.errors) {
+      const innerParts = [inner && inner.code, inner && inner.address, inner && inner.port].filter(Boolean);
+      if (innerParts.length) parts.push(innerParts.join(" "));
+    }
+  }
+  if (parts.length) return parts.join("; ");
+  return error && error.name ? error.name : "unknown error";
+}
 
 function linearStatusFor(taskStatus) {
   const statusMap = {
@@ -279,6 +416,19 @@ function linearStatusFor(taskStatus) {
     not_applicable: "done"
   };
   return statusMap[taskStatus] || "backlog";
+}
+
+function linearStatusFromIssue(issue) {
+  const state = issue && issue.state ? issue.state : {};
+  const name = String(state.name || "").toLowerCase();
+  const type = String(state.type || "").toLowerCase();
+  if (name === "blocked") return "blocked";
+  if (type === "completed") return "done";
+  if (type === "started") return "inProgress";
+  if (type === "review") return "inReview";
+  if (type === "backlog" || type === "unstarted") return "backlog";
+  if (type === "canceled") return "canceled";
+  return type || name || "unknown";
 }
 
 async function resolveWorkflowStates(teamId) {
@@ -345,7 +495,7 @@ function graphql(body) {
 }
 
 function parseArgs(rawArgs) {
-  const parsed = { stateFile: "", taskId: "", dryRun: false, create: false };
+  const parsed = { stateFile: "", taskId: "", dryRun: false, create: false, audit: false };
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
     if (!arg.startsWith("--") && !parsed.stateFile) {
@@ -356,6 +506,7 @@ function parseArgs(rawArgs) {
       case "--task": parsed.taskId = rawArgs[++index]; break;
       case "--dry-run": parsed.dryRun = true; break;
       case "--create": parsed.create = true; break;
+      case "--audit": parsed.audit = true; break;
     }
   }
   return parsed;

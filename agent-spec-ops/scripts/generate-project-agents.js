@@ -123,6 +123,7 @@ function buildManagedBlock(includeTitle) {
   lines.push("- Use `transition.js` for top-level state transitions.");
   lines.push("- Use `transition-task.js` for task status transitions.");
   lines.push("- Use Linear as the task system of record when `LINEAR_API_KEY` is configured.");
+  lines.push("- For Linear status disputes, session evaluation, or backlog/in-progress/done checks, run `sync-linear-task.js --audit`; do not hand-roll Linear GraphQL filters in chat.");
   lines.push("- Before implementation, every task must have a Linear issue ID.");
   lines.push("- `implemented` requires scoped changed files and implementation evidence.");
   lines.push("- Dev tasks require test evidence, pushed branch, MR URL, passed MR status comment, passed MR check evidence, and merged MR evidence before `verified`.");
@@ -160,6 +161,7 @@ function buildManagedBlock(includeTitle) {
   lines.push("```bash");
   lines.push(`cd ${harnessRel}`);
   lines.push(`node scripts/sync-linear-task.js ${stateRelFromHarness} --create`);
+  lines.push(`node scripts/sync-linear-task.js ${stateRelFromHarness} --audit`);
   lines.push(`node scripts/validate-state.js ${stateRelFromHarness}`);
   lines.push("```");
   lines.push("");
@@ -294,6 +296,8 @@ function openCodeAdapterFiles() {
         "- Do not edit project files.",
         "- Do not run frontend/backend dev or test work yourself.",
         "- If this is a default build/general session, stop and tell the user to invoke `/agent-spec-spawn` or `@agent-spec-orchestrator`.",
+        "- For Linear status disputes or session evaluation, run `sync-linear-task.js --audit` and report its issue-by-issue output.",
+        "- Do not hand-roll Linear GraphQL filters in chat; they miss paginated issues, stale ids, project filters, and active tasks.",
         "- If the user requests rework, route back to `task_breakdown`; do not patch code first.",
         "- Use `plan-agent-dispatch.js --enable-auto` to create planned spawn requests.",
         "- Invoke only the exact `.opencode/agents/agent-spec-*` subagent named by each planned request.",
@@ -498,6 +502,7 @@ function openCodeSpawnCommand() {
     `node scripts/read-context.js ${stateRelFromHarness} --role orchestrator`,
     `node scripts/read-instructions.js ${stateRelFromHarness} --role orchestrator`,
     `node scripts/validate-state.js ${stateRelFromHarness}`,
+    `node scripts/sync-linear-task.js ${stateRelFromHarness} --audit`,
     `node scripts/plan-agent-dispatch.js ${stateRelFromHarness} --enable-auto`,
     `node scripts/record-agent-spawn.js ${stateRelFromHarness} <SPAWN_REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>`,
     "```",
@@ -528,7 +533,8 @@ function recentKnowledge() {
     }
   } catch {}
   try {
-    const events = readNdjson(path.join(runDir, "events.ndjson"));
+    const events = readNdjson(path.join(runDir, "events.ndjson"))
+      .filter((event) => event.type !== "linear_audit");
     for (const event of events.slice(-5)) {
       if (event.summary) entries.push(`event ${event.type}: ${event.summary}`);
     }

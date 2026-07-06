@@ -11,6 +11,15 @@ finds a confirmed harness or project-instruction root cause, apply the safe fix
 before reporting. Stop at analysis only when the user says "evaluate only" or a
 fix needs approval or unclear product-scope changes.
 
+Linear status checks use the harness audit, not ad hoc agent queries:
+
+```bash
+node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --audit
+```
+
+The audit queries each recorded Linear issue id directly and reports non-terminal
+tasks, stale links, missing ids, and status mismatches.
+
 ## Flow
 
 ```text

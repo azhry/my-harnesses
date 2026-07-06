@@ -3,6 +3,12 @@
 Use this harness to manage delivery state. Do not treat a human prompt as a
 direct coding command while a run is active.
 
+Evaluation is not passive. If the user asks to evaluate, inspect, review, or
+diagnose a run/session, also apply safe harness/project instruction fixes for
+confirmed root causes before reporting. Only stop at evaluation when the user
+explicitly says "evaluate only" or the fix needs approval or would touch
+unclear product scope.
+
 Default/freeform OpenCode `build` or `general` sessions are not harness
 orchestrators. If a prompt was not launched through `/agent-spec-spawn` or
 `@agent-spec-orchestrator`, stop and ask the user to restart through the

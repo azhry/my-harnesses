@@ -109,6 +109,8 @@ function buildManagedBlock(includeTitle) {
   lines.push("");
   lines.push("### Non-Negotiable Workflow");
   lines.push("");
+  lines.push("- Evaluation is not passive: if the user asks to evaluate, inspect, review, or diagnose a run/session, also apply safe harness/project instruction fixes for confirmed root causes before reporting.");
+  lines.push("- Stop at evaluation only when the user explicitly says `evaluate only` or the fix needs approval or unclear product-scope changes.");
   lines.push("- A default/freeform OpenCode `build` or `general` session is not the harness orchestrator.");
   lines.push("- If this prompt was not launched through `/agent-spec-spawn` or `@agent-spec-orchestrator`, stop and ask the user to restart through the harness command/agent before planning, spawning, editing, submitting, or merging.");
   lines.push("- Do not treat a user prompt as direct coding work while this run is active.");

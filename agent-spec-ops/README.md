@@ -6,6 +6,11 @@ The harness keeps one source of truth in `runs/<DELIVERY_ID>/workflow-state.json
 Agents should follow the state machine, not jump from a human prompt straight
 into code.
 
+Evaluation requests are evaluate-and-fix by default. When a run/session review
+finds a confirmed harness or project-instruction root cause, apply the safe fix
+before reporting. Stop at analysis only when the user says "evaluate only" or a
+fix needs approval or unclear product-scope changes.
+
 ## Flow
 
 ```text

@@ -122,6 +122,7 @@ function buildManagedBlock(includeTitle) {
   lines.push("- Do not use generic state-field mutation for status, task, gate, or lease updates.");
   lines.push("- Do not run long-lived dev servers or full E2E suites from a default build/general session or orchestrator role.");
   lines.push("- Test agents must use bounded, task-scoped commands. On timeout, hang, or first failing run, record failed evidence and return to dev instead of rerunning the full suite or patching implementation.");
+  lines.push("- Local browser E2E must be visible/headed by default so the human can watch. Use headless only in CI, when the user explicitly asks, or for a final artifact-only check; if visible mode is unavailable, stop and report it.");
   lines.push("- Use `record-event.js` only for evidence, decisions, blockers, and corrections.");
   lines.push("- Use `transition.js` for top-level state transitions.");
   lines.push("- Use `transition-task.js` for task status transitions.");
@@ -350,6 +351,8 @@ function openCodeAdapterFiles() {
         "",
         "- Run only relevant frontend tests and visual checks required by the task.",
         "- Use bounded, task-scoped commands. Prefer a single spec or explicit test target over a full suite when the task scope allows it.",
+        "- For Cypress/Playwright browser E2E in local sessions, use visible/headed mode by default, such as `cypress open`, `cypress run --headed --browser chrome --spec <spec>`, or Playwright headed mode.",
+        "- Do not silently switch browser E2E to headless. Headless is allowed only in CI, when the user explicitly asks, or for a final artifact-only check.",
         "- Do not pipe long test runs through `tail` or rerun full suites repeatedly; capture the first failure, screenshots/logs, and stop.",
         "- Record pass/fail evidence with `record-test-results.js --role frontend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",

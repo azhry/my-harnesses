@@ -38,3 +38,5 @@ evidence must come from `submit-task.js`.
 
 Test agents use bounded task-scoped commands. On timeout, hang, or first failing
 run, record failed evidence and return to dev instead of rerunning full suites.
+Local browser E2E uses visible/headed mode by default so the user can watch.
+Headless is only for CI, explicit user request, or final artifact-only checks.

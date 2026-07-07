@@ -113,7 +113,8 @@ function roleGates(stateName, roleName) {
   if (roleName === "frontend_test" || roleName === "backend_test") {
     return [
       "- ALLOWED: verify the assigned implemented task with bounded, task-scoped commands and record passed/failed evidence.",
-      "- DENIED: edit implementation files, implement planned work, rerun full suites repeatedly, hide long output behind tail, bypass MR status comment or merge evidence.",
+      "- DENIED: edit implementation files, implement planned work, rerun full suites repeatedly, hide long output behind tail, silently run local browser E2E headless, bypass MR status comment or merge evidence.",
+      "- REQUIRED: for local Cypress/Playwright browser E2E, use visible/headed mode by default; headless is only for CI, explicit user request, or final artifact-only checks.",
       "- REQUIRED: transition implemented -> testing, run one focused check loop, record-test-results without manual merge/check flags, then hand back for submit-task.js or dev rework."
     ];
   }

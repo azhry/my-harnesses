@@ -81,6 +81,9 @@ Default build/general sessions and orchestrator must not start dev servers,
 background daemons, Cypress, Playwright, or full test suites. Test agents must
 use bounded task-scoped commands; on timeout, hang, or first failing run, record
 failed evidence and return to dev instead of rerunning full suites.
+Local browser E2E must be visible/headed by default so the user can watch. Use
+headless only in CI, when the user explicitly asks, or for a final artifact-only
+check; if visible mode is unavailable, stop and report it.
 
 Hard gates:
 

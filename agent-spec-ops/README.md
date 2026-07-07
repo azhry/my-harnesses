@@ -62,6 +62,16 @@ intake
 
 No Linear task, no implementation.
 
+Record task entries through the harness, then sync Linear:
+
+```bash
+node scripts/record-task-breakdown.js runs/<DELIVERY_ID>/workflow-state.json --file runs/<DELIVERY_ID>/task-breakdown.json --dependencies-checked
+node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --create
+```
+
+Do not create temporary scripts or edit `workflow-state.json` directly to
+mutate `task_graph.tasks`.
+
 ## Implementation
 
 Frontend and backend may run in parallel. Dev and test are separate agents:
@@ -73,6 +83,11 @@ backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/commen
 
 If test fails, return to dev. If a dev/test loop reaches 3 attempts, stop and
 ask the user to intervene.
+
+Default build/general sessions and orchestrator must not start dev servers,
+background daemons, Cypress, Playwright, or full test suites. Test agents must
+use bounded task-scoped commands; on timeout, hang, or first failing run, record
+failed evidence and return to dev instead of rerunning full suites.
 
 Hard gates are enforced by scripts:
 
@@ -98,6 +113,7 @@ node scripts/plan-agent-dispatch.js runs/FTR-123/workflow-state.json --enable-au
 node scripts/record-agent-spawn.js runs/FTR-123/workflow-state.json <SPAWN_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>
 node scripts/check-write-scope.js runs/FTR-123/workflow-state.json <TARGET_PATH> frontend_dev
 node scripts/transition.js runs/FTR-123/workflow-state.json product_review "Requirements ready"
+node scripts/record-task-breakdown.js runs/FTR-123/workflow-state.json --file runs/FTR-123/task-breakdown.json --dependencies-checked
 node scripts/transition-task.js runs/FTR-123/workflow-state.json FE-001 active "Starting"
 node scripts/record-test-results.js runs/FTR-123/workflow-state.json --task FE-001 --status passed --role frontend_test --command "npm test" --output "..." --mr-comment-url "<URL>"
 node scripts/submit-task.js runs/FTR-123/workflow-state.json FE-001 --commit-msg "feat: FE-001: summary" --test-command "npm test"

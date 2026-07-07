@@ -52,6 +52,7 @@ const requiredFiles = [
   "scripts/fetch-stitch-designs.js",
   "scripts/plan-agent-dispatch.js",
   "scripts/record-agent-spawn.js",
+  "scripts/record-task-breakdown.js",
   "scripts/record-event.js",
   "scripts/record-knowledge.js",
   "scripts/record-test-results.js",

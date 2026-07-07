@@ -48,7 +48,7 @@ function stateRule(stateName) {
     design_assembly: "Assemble approved design inputs/assets.",
     system_rules: "Write implementation rules from approved product requirements and design.",
     system_rules_review: "Stop for human system-rules review. If rejected, go back to design_assembly.",
-    task_breakdown: "Create Linear tasks using the required task template. Rework always returns here.",
+    task_breakdown: "Write task-breakdown JSON, run record-task-breakdown.js, then sync Linear with --create. Do not mutate task_graph.tasks directly. Rework always returns here.",
     implementation_in_progress: "Spawn separate dev/test subagents. Frontend and backend may run in parallel.",
     implementation_review: "Verify implementation against product requirements, then stop for human review.",
     done: "Delivery complete.",
@@ -69,7 +69,7 @@ function checklist(from, to) {
     "system_rules->system_rules_review": ["system rules artifact ready", "design/product traceable"],
     "system_rules_review->task_breakdown": ["system_rules_review gate approved by human"],
     "system_rules_review->design_assembly": ["human requested design/rules changes"],
-    "task_breakdown->implementation_in_progress": ["Linear tasks created", "each task has description/template/checklist", "dependencies checked", "dispatch planned"],
+    "task_breakdown->implementation_in_progress": ["tasks recorded with record-task-breakdown.js", "Linear tasks created", "each task has description/template/checklist/MR description", "dependencies checked", "dispatch planned"],
     "implementation_in_progress->implementation_review": ["all frontend/backend tasks verified", "MR comments recorded passed/failed", "task MRs merged", "implementation mapped to requirements"],
     "implementation_in_progress->task_breakdown": ["human rework or scope change recorded"],
     "implementation_review->done": ["implementation_review gate approved by human"],
@@ -82,7 +82,7 @@ function checklist(from, to) {
 function roleRule(roleName) {
   const rules = {
     product_manager: "Owns product requirements. Output must be reviewable by a human.",
-    project_manager: "Owns Linear task breakdown. Every task needs title, description, scope, DoD, test plan, dependencies, and MR description template.",
+    project_manager: "Owns Linear task breakdown. Write task JSON, run record-task-breakdown.js, then sync Linear. Every task needs title, description, scope, DoD, test plan, dependencies, and MR description template.",
     frontend_dev: "Implement only assigned frontend task scope. Do not test-sign off your own work.",
     frontend_test: "Test assigned frontend work. On pass/fail, record evidence and MR comment status only. Do not record dev-task merge/check evidence manually.",
     backend_dev: "Implement only assigned backend task scope. Do not test-sign off your own work.",
@@ -99,7 +99,7 @@ function roleGates(stateName, roleName) {
   if (roleName === "orchestrator") {
     return [
       "- ALLOWED: read state, plan-agent-dispatch, record-agent-spawn, inspect status, route rework.",
-      "- DENIED: edit project files, run dev/test directly, transition tasks without a recorded role lease, claim implementation complete.",
+      "- DENIED: edit project files, run dev/test directly, start dev servers or E2E suites, transition tasks without a recorded role lease, claim implementation complete.",
       "- REQUIRED: spawn separate dev and test agents; record each returned agent id before task transitions."
     ];
   }
@@ -112,9 +112,9 @@ function roleGates(stateName, roleName) {
   }
   if (roleName === "frontend_test" || roleName === "backend_test") {
     return [
-      "- ALLOWED: verify the assigned implemented task and record passed/failed evidence.",
-      "- DENIED: edit implementation files, implement planned work, bypass MR status comment or merge evidence.",
-      "- REQUIRED: transition implemented -> testing, run checks, record-test-results without manual merge/check flags, then hand back for submit-task.js."
+      "- ALLOWED: verify the assigned implemented task with bounded, task-scoped commands and record passed/failed evidence.",
+      "- DENIED: edit implementation files, implement planned work, rerun full suites repeatedly, hide long output behind tail, bypass MR status comment or merge evidence.",
+      "- REQUIRED: transition implemented -> testing, run one focused check loop, record-test-results without manual merge/check flags, then hand back for submit-task.js or dev rework."
     ];
   }
   return ["- DENIED: implementation actions are reserved for orchestrator, dev, and test roles."];

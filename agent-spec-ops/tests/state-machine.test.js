@@ -189,6 +189,34 @@ function devTask(id, role, lane) {
   };
 }
 
+function taskBreakdownTask(id = "FE-099") {
+  return {
+    id,
+    title: `${id} planned task`,
+    lane: "frontend",
+    role: "frontend_dev",
+    depends_on: [],
+    description: "Implement the planned frontend work.",
+    expected_changes: ["frontend/app"],
+    scope: {
+      allowed_paths: ["frontend/app/**"],
+      allowed_repos: ["project"],
+      allowed_services: ["frontend"],
+      contract_refs: []
+    },
+    definition_of_done: ["Frontend behavior is implemented"],
+    verification: ["Run the frontend test command"],
+    expected_mr_description: "Use the PR template and include scope, tests, MR comment, checks, and merge evidence."
+  };
+}
+
+function writeTaskBreakdownFile(tasks) {
+  const file = path.join(TMP, "task-breakdown.json");
+  fs.mkdirSync(TMP, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ tasks }, null, 2) + "\n");
+  return file;
+}
+
 describe("compact state machine", () => {
   it("uses the compact top-level flow and routes rework to task breakdown", () => {
     assert.equal(canTransition("product_requirements", "product_review"), true);
@@ -249,6 +277,69 @@ describe("transition.js", () => {
     const result = runScript("transition.js", [statePath(), "implementation_review", "ready"]);
     assert.equal(result.exitCode, 0);
     assert.equal(loadState().current_state, "implementation_review");
+  });
+
+  it("rejects option-like flags in the free-form note", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [devTask("FE-001", "frontend_dev", "frontend")];
+    writeState(state);
+
+    const result = runScript("transition.js", [statePath(), "task_breakdown", "--role", "orchestrator"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Unexpected option/);
+  });
+});
+
+describe("record-task-breakdown.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("records planned task entries from the official JSON artifact", () => {
+    const state = baseState();
+    state.current_state = "task_breakdown";
+    state.task_graph.tasks = [];
+    writeState(state);
+    const taskFile = writeTaskBreakdownFile([taskBreakdownTask()]);
+
+    const result = runScript("record-task-breakdown.js", [statePath(), "--file", taskFile, "--dependencies-checked"]);
+    assert.equal(result.exitCode, 0);
+    const updated = loadState();
+    assert.equal(updated.task_graph.tasks.length, 1);
+    assert.equal(updated.task_graph.tasks[0].id, "FE-099");
+    assert.equal(updated.task_graph.tasks[0].status, "planned");
+    assert.equal(updated.task_graph.tasks[0].test.status, "not_started");
+    assert.equal(updated.task_graph.tasks[0].expected_mr_description.includes("PR template"), true);
+    assert.equal(updated.task_graph.dependencies_checked, true);
+    assert.equal(updated.task_graph.status, "approved");
+    assert.equal(updated.artifacts.task_breakdown.path, "task-breakdown.json");
+  });
+
+  it("rejects task recording outside task_breakdown state", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [];
+    writeState(state);
+    const taskFile = writeTaskBreakdownFile([taskBreakdownTask("FE-100")]);
+
+    const result = runScript("record-task-breakdown.js", [statePath(), "--file", taskFile]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /requires current_state=task_breakdown/);
+  });
+
+  it("rejects missing MR description template", () => {
+    const state = baseState();
+    state.current_state = "task_breakdown";
+    state.task_graph.tasks = [];
+    writeState(state);
+    const task = taskBreakdownTask("FE-101");
+    delete task.expected_mr_description;
+    const taskFile = writeTaskBreakdownFile([task]);
+
+    const result = runScript("record-task-breakdown.js", [statePath(), "--file", taskFile]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /expected_mr_description is required/);
   });
 });
 

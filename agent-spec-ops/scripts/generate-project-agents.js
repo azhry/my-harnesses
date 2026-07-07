@@ -117,8 +117,11 @@ function buildManagedBlock(includeTitle) {
   lines.push("- If the user requests rework, stop implementation and route back to `task_breakdown`.");
   lines.push("- Do not keep task, gate, credential, or design knowledge only in chat.");
   lines.push("- Do not edit `workflow-state.json` directly.");
+  lines.push("- For task breakdown, write `runs/<DELIVERY_ID>/task-breakdown.json` and run `record-task-breakdown.js`; do not create temporary scripts or mutate `task_graph.tasks` directly.");
   lines.push("- If context recovery or validation reports a state integrity error, stop; do not continue from untrusted state.");
   lines.push("- Do not use generic state-field mutation for status, task, gate, or lease updates.");
+  lines.push("- Do not run long-lived dev servers or full E2E suites from a default build/general session or orchestrator role.");
+  lines.push("- Test agents must use bounded, task-scoped commands. On timeout, hang, or first failing run, record failed evidence and return to dev instead of rerunning the full suite or patching implementation.");
   lines.push("- Use `record-event.js` only for evidence, decisions, blockers, and corrections.");
   lines.push("- Use `transition.js` for top-level state transitions.");
   lines.push("- Use `transition-task.js` for task status transitions.");
@@ -160,6 +163,7 @@ function buildManagedBlock(includeTitle) {
   lines.push("");
   lines.push("```bash");
   lines.push(`cd ${harnessRel}`);
+  lines.push(`node scripts/record-task-breakdown.js ${stateRelFromHarness} --file ${runRelFromHarness}/task-breakdown.json --dependencies-checked`);
   lines.push(`node scripts/sync-linear-task.js ${stateRelFromHarness} --create`);
   lines.push(`node scripts/sync-linear-task.js ${stateRelFromHarness} --audit`);
   lines.push(`node scripts/validate-state.js ${stateRelFromHarness}`);
@@ -295,7 +299,9 @@ function openCodeAdapterFiles() {
         "",
         "- Do not edit project files.",
         "- Do not run frontend/backend dev or test work yourself.",
+        "- Do not start dev servers, background daemons, Cypress, Playwright, or full test suites from the orchestrator.",
         "- If this is a default build/general session, stop and tell the user to invoke `/agent-spec-spawn` or `@agent-spec-orchestrator`.",
+        "- For task breakdown, write the task JSON artifact and run `record-task-breakdown.js`; never create temporary state mutation scripts.",
         "- For Linear status disputes or session evaluation, run `sync-linear-task.js --audit` and report its issue-by-issue output.",
         "- Do not hand-roll Linear GraphQL filters in chat; they miss paginated issues, stale ids, project filters, and active tasks.",
         "- If the user requests rework, route back to `task_breakdown`; do not patch code first.",
@@ -343,6 +349,8 @@ function openCodeAdapterFiles() {
         "Rules:",
         "",
         "- Run only relevant frontend tests and visual checks required by the task.",
+        "- Use bounded, task-scoped commands. Prefer a single spec or explicit test target over a full suite when the task scope allows it.",
+        "- Do not pipe long test runs through `tail` or rerun full suites repeatedly; capture the first failure, screenshots/logs, and stop.",
         "- Record pass/fail evidence with `record-test-results.js --role frontend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",
         "- Do not use manual merge/check flags with `record-test-results.js` for dev tasks.",
@@ -389,6 +397,8 @@ function openCodeAdapterFiles() {
         "Rules:",
         "",
         "- Run only relevant backend tests required by the task.",
+        "- Use bounded, task-scoped commands. Prefer a single package/test target over a full suite when the task scope allows it.",
+        "- Do not pipe long test runs through `tail` or rerun full suites repeatedly; capture the first failure logs and stop.",
         "- Record pass/fail evidence with `record-test-results.js --role backend_test`.",
         "- Add the required passed/failed status comment to the MR when an MR exists.",
         "- Do not use manual merge/check flags with `record-test-results.js` for dev tasks.",

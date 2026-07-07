@@ -61,6 +61,9 @@ intake
 
 Create Linear tasks only. Each task needs description, lane, role, scope,
 dependencies, definition of done, verification/test plan, and MR description.
+Record new task entries with `record-task-breakdown.js`; do not write temporary
+scripts or edit `workflow-state.json` directly to mutate `task_graph.tasks`.
+After recording tasks, run `sync-linear-task.js --create`.
 
 ## Implementation
 
@@ -73,6 +76,11 @@ backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/commen
 
 If test fails, return to dev. If the dev/test loop reaches 3 attempts, stop and
 tell the user what failed.
+
+Default build/general sessions and orchestrator must not start dev servers,
+background daemons, Cypress, Playwright, or full test suites. Test agents must
+use bounded task-scoped commands; on timeout, hang, or first failing run, record
+failed evidence and return to dev instead of rerunning full suites.
 
 Hard gates:
 
@@ -91,6 +99,7 @@ Hard gates:
 
 ```bash
 node scripts/transition.js runs/<DELIVERY_ID>/workflow-state.json <NEXT_STATE> "reason"
+node scripts/record-task-breakdown.js runs/<DELIVERY_ID>/workflow-state.json --file runs/<DELIVERY_ID>/task-breakdown.json --dependencies-checked
 node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> <STATUS> "reason"
 node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json --enable-auto
 node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>

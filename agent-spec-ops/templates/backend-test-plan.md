@@ -21,6 +21,9 @@ Delivery: `<DELIVERY_ID>` - `<TITLE>`
 
 ## Commands
 
+Use bounded task-scoped commands. Prefer one package/test target for this task.
+On timeout, hang, or first failing run, record failed evidence and return to dev.
+
 ```bash
 
 ```

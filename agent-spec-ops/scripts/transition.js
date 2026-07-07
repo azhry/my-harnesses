@@ -18,6 +18,13 @@ if (!file || !nextState) {
   process.exit(1);
 }
 
+const unexpectedOptions = noteParts.filter((part) => /^--[A-Za-z0-9-]+$/.test(part));
+if (unexpectedOptions.length) {
+  console.error(`Unexpected option(s): ${unexpectedOptions.join(", ")}`);
+  console.error("Usage: node scripts/transition.js path/to/workflow-state.json NEXT_STATE [NOTE]");
+  process.exit(1);
+}
+
 if (!states.includes(nextState)) {
   console.error(`Invalid next state: ${nextState}`);
   console.error(`Allowed states: ${states.join(", ")}`);

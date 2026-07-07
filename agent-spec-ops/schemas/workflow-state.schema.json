@@ -511,6 +511,7 @@
         "scope": { "$ref": "#/$defs/taskScope" },
         "definition_of_done": { "type": "array", "items": { "type": "string" } },
         "verification": { "type": "array", "items": { "type": "string" } },
+        "expected_mr_description": { "type": "string" },
         "implementation": {
           "type": "object",
           "required": ["changed_files", "evidence", "deviations"],

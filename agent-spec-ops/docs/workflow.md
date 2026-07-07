@@ -35,3 +35,6 @@ returns to dev. A loop that reaches 3 attempts requires user intervention.
 Each task needs its own MR; shared task MRs are rejected.
 MRs must not be merged until code-host checks pass, and dev-task MR check/merge
 evidence must come from `submit-task.js`.
+
+Test agents use bounded task-scoped commands. On timeout, hang, or first failing
+run, record failed evidence and return to dev instead of rerunning full suites.

@@ -1,0 +1,18 @@
+{
+  "name": "dev-circuit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evidence-driven end-to-end software engineering harness from request to verified delivery.",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "devcircuit": "node scripts/dev-circuit.js",
+    "monitor": "node scripts/monitor.js --watch",
+    "monitor:once": "node scripts/monitor.js --once",
+    "readiness": "node scripts/check-readiness.js",
+    "orchestrate": "node scripts/orchestrator.js --watch",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/args.js && node --check src/security.js && node --check src/worker-process.js && node --check src/submissions.js && node --check src/readiness.js && node --check src/state-store.js && node --check src/workflow.js && node --check src/gates.js && node --check src/linear.js && node --check src/github.js && node --check src/dispatcher.js && node --check src/planner.js && node --check src/orchestrator.js && node --check src/cli.js && node --check scripts/dev-circuit.js && node --check scripts/check-readiness.js && node --check scripts/submit.js && node --check scripts/monitor.js && node --check scripts/orchestrator.js",
+    "validate": "npm run check && npm test"
+  }
+}

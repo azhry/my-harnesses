@@ -1,0 +1,13 @@
+[
+  {
+    "id": "APP-001",
+    "title": "Implement one independently deliverable outcome",
+    "description": "Describe the behavior and why it is required.",
+    "scope": ["Exact behavior to implement"],
+    "exclusions": ["Explicit non-goal"],
+    "acceptance_criteria": ["Observable outcome"],
+    "verification_commands": ["npm test"],
+    "manual_test_steps": ["Start the app", "Perform the action", "Observe the expected result"],
+    "dependencies": []
+  }
+]

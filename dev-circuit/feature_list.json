@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "features": [
+    { "id": "DC-001", "behavior": "Initialize sealed delivery from versioned specification and task plan", "verification": "npm test", "state": "passing" },
+    { "id": "DC-002", "behavior": "Create or reuse Linear project and publish specification and tasks", "verification": "Linear adapter contract test", "state": "passing" },
+    { "id": "DC-003", "behavior": "Project task state as Todo, In Progress, In Review, Done", "verification": "Linear lifecycle tests", "state": "passing" },
+    { "id": "DC-004", "behavior": "Enforce one active task and one feature branch per task", "verification": "WIP and Git lifecycle tests", "state": "passing" },
+    { "id": "DC-005", "behavior": "Dispatch and record distinct implementer, reviewer, gatekeeper, and merger identities", "verification": "dispatch and role tests", "state": "passing" },
+    { "id": "DC-006", "behavior": "Return failed review to implementation and invalidate stale evidence", "verification": "review rejection tests", "state": "passing" },
+    { "id": "DC-007", "behavior": "Deny merge without independent current-SHA evidence and Linear confirmation", "verification": "merge gate tests", "state": "passing" },
+    { "id": "DC-008", "behavior": "Continuously monitor sealed state and report invariant violations", "verification": "supervisor heartbeat test", "state": "passing" },
+    { "id": "DC-009", "behavior": "Merge only through GitHub required checks after gate ALLOW", "verification": "live GitHub sandbox certification", "state": "active" },
+    { "id": "DC-010", "behavior": "Meet production chaos and volume certification thresholds", "verification": "docs/certification.md", "state": "not_started" },
+    { "id": "DC-011", "behavior": "Fail readiness unless the sandbox runner is executable, SHA-256 pinned, nonce-bound, operational, and isolation-attested", "verification": "sandbox readiness negative tests", "state": "passing" },
+    { "id": "DC-012", "behavior": "Isolate simultaneous deliveries with run-scoped branches, state directories, locks, and Git worktrees", "verification": "concurrent worktree test", "state": "passing" },
+    { "id": "DC-013", "behavior": "Support Claude Code, OpenCode, Kilo Code, and other runtimes through the adapter protocol", "verification": "live runtime adapter certification", "state": "active" }
+  ]
+}

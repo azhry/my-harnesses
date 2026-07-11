@@ -67,11 +67,13 @@ After recording tasks, run `sync-linear-task.js --create`.
 
 ## Implementation
 
-Frontend and backend can run in parallel. Dev and test are separate agents:
+Delivery WIP is exactly one task. Dev and test are separate agents handing off
+the same task; no second task may start until the first is verified, merged,
+reviewed, and confirmed synchronized to Linear:
 
 ```text
-frontend_dev -> frontend_test(record-test-results) -> submit-task(push/MR/comment/checks/merge)
-backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/comment/checks/merge)
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/PR) -> frontend_test(record-pr-review) -> submit-task(checks/merge) -> verified/Linear sync
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/PR) -> backend_test(record-pr-review) -> submit-task(checks/merge) -> verified/Linear sync
 ```
 
 If test fails, return to dev. If the dev/test loop reaches 3 attempts, stop and
@@ -81,6 +83,8 @@ Default build/general sessions and orchestrator must not start dev servers,
 background daemons, Cypress, Playwright, or full test suites. Test agents must
 use bounded task-scoped commands; on timeout, hang, or first failing run, record
 failed evidence and return to dev instead of rerunning full suites.
+Use `run-task-command.js` for task build/test commands; it enforces a maximum
+120-second timeout and records pass/fail/timeout evidence in workflow state.
 Local browser E2E must be visible/headed by default so the user can watch. Use
 headless only in CI, when the user explicitly asks, or for a final artifact-only
 check; if visible mode is unavailable, stop and report it.
@@ -93,6 +97,8 @@ Hard gates:
 - `implemented` requires scoped changed files and implementation evidence.
 - Test results require `testing` status and a matching test-agent lease.
 - `verified` requires changed files, tests, branch, push, MR URL, passed MR status comment URL, passed MR check evidence, and merged MR evidence.
+- Every PR requires an independent matching test-agent review recorded by `record-pr-review.js` against the exact submitted HEAD before merge.
+- Every task transition synchronizes Linear synchronously. A failed or timed-out sync exits non-zero and blocks the next task.
 - Do not run raw `gh pr merge`; use `submit-task.js` so checks are inspected before merge.
 - `record-test-results.js` records tests and MR status comments only; dev-task MR check/merge evidence must come from `submit-task.js`.
 - `submit-task.js` refuses unrelated dirty files.
@@ -109,6 +115,8 @@ node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUE
 node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> <ROLE>
 node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --audit
 node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>"
+node scripts/record-pr-review.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --status passed --role <TEST_ROLE> --summary "review summary" --evidence "review evidence"
+node scripts/run-task-command.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --role <ROLE> --label "task-scoped check" --timeout-ms 120000 -- <executable> [args...]
 node scripts/submit-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --commit-msg "feat: <TASK_ID>: summary" --test-command "<OPTIONAL_RECHECK_COMMAND>"
 node scripts/reopen-delivery.js runs/<DELIVERY_ID>/workflow-state.json "reason"
 ```

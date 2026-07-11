@@ -56,6 +56,8 @@ const requiredFiles = [
   "scripts/record-event.js",
   "scripts/record-knowledge.js",
   "scripts/record-test-results.js",
+  "scripts/record-pr-review.js",
+  "scripts/run-task-command.js",
   "scripts/submit-task.js",
   "scripts/monitor-runs.js",
   "scripts/read-context.js",

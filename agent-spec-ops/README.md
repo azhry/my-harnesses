@@ -74,11 +74,13 @@ mutate `task_graph.tasks`.
 
 ## Implementation
 
-Frontend and backend may run in parallel. Dev and test are separate agents:
+Delivery WIP is exactly one task. Dev and test are separate agents handing off
+the same task until its PR is reviewed, merged, verified, and synchronized to
+Linear:
 
 ```text
-frontend_dev -> frontend_test(record-test-results) -> submit-task(push/MR/comment/checks/merge)
-backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/comment/checks/merge)
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/PR) -> frontend_test(record-pr-review) -> submit-task(checks/merge)
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/PR) -> backend_test(record-pr-review) -> submit-task(checks/merge)
 ```
 
 If test fails, return to dev. If a dev/test loop reaches 3 attempts, stop and
@@ -88,6 +90,8 @@ Default build/general sessions and orchestrator must not start dev servers,
 background daemons, Cypress, Playwright, or full test suites. Test agents must
 use bounded task-scoped commands; on timeout, hang, or first failing run, record
 failed evidence and return to dev instead of rerunning full suites.
+Use `run-task-command.js` for task build/test commands; it caps execution at
+120 seconds and records pass/fail/timeout evidence in workflow state.
 Local browser E2E must be visible/headed by default so the user can watch. Use
 headless only in CI, when the user explicitly asks, or for a final artifact-only
 check; if visible mode is unavailable, stop and report it.
@@ -103,6 +107,8 @@ Hard gates are enforced by scripts:
 - `verified` requires changed files, test evidence, branch, push, MR URL, passed MR status comment URL, passed MR check evidence, and merged MR evidence.
 - `submit-task.js` refuses to complete a merge unless code-host MR checks are passed; raw `gh pr merge` is not a valid harness path.
 - `record-test-results.js` records tests and MR status comments only; dev-task MR check/merge evidence must come from `submit-task.js`.
+- `record-pr-review.js` records the matching test agent's independent PR verdict against the exact submitted HEAD; merge is refused until it passes.
+- Task transitions synchronize Linear synchronously. Sync failure or timeout is visible, non-zero, and blocks the next task.
 - `submit-task.js` refuses unrelated dirty files instead of staging the whole worktree.
 - `seal-state.js` is trusted manual repair only. It refuses to seal if `validate-state.js` still reports workflow errors.
 
@@ -119,6 +125,8 @@ node scripts/transition.js runs/FTR-123/workflow-state.json product_review "Requ
 node scripts/record-task-breakdown.js runs/FTR-123/workflow-state.json --file runs/FTR-123/task-breakdown.json --dependencies-checked
 node scripts/transition-task.js runs/FTR-123/workflow-state.json FE-001 active "Starting"
 node scripts/record-test-results.js runs/FTR-123/workflow-state.json --task FE-001 --status passed --role frontend_test --command "npm test" --output "..." --mr-comment-url "<URL>"
+node scripts/record-pr-review.js runs/FTR-123/workflow-state.json FE-001 --status passed --role frontend_test --summary "review summary" --evidence "review evidence"
+node scripts/run-task-command.js runs/FTR-123/workflow-state.json FE-001 --role frontend_test --label "unit tests" --timeout-ms 120000 -- npm test
 node scripts/submit-task.js runs/FTR-123/workflow-state.json FE-001 --commit-msg "feat: FE-001: summary" --test-command "npm test"
 node scripts/reopen-delivery.js runs/FTR-123/workflow-state.json "Human requested rework"
 node scripts/validate-harness.js

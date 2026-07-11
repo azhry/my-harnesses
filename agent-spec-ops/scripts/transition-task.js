@@ -6,7 +6,7 @@ const path = require("path");
 const {
   taskStatuses
 } = require("./lib/state-machine");
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 const { appendEvent } = require("./lib/memory-store");
 const { checkContext, updateSessionMarker } = require("./lib/context-check");
 const { getLinearConfig } = require("./lib/linear-config");
@@ -122,12 +122,17 @@ if (nextStatus === "active") {
       }
     }
   }
-  const lane = LANE_ROLE_MAP[task.role] || "unknown";
-  const activeInLane = tasks.filter(
-    (t) => (LANE_ROLE_MAP[t.role] || "unknown") === lane && t.status === "active" && t.id !== taskId
+  const unfinished = tasks.filter(
+    (t) => t.id !== taskId && ["active", "implemented", "testing", "failed", "blocked"].includes(t.status)
   );
-  if (activeInLane.length > 0) {
-    errors.push(`WIP=1 violation: ${task.role} lane already has active task: ${activeInLane[0].id}`);
+  if (unfinished.length > 0) {
+    errors.push(`Delivery WIP=1 violation: finish ${unfinished[0].id} through verified PR review, merge, and Linear sync before starting ${taskId} (current status: ${unfinished[0].status}).`);
+  }
+  const unsyncedVerified = tasks.filter(
+    (t) => t.id !== taskId && t.status === "verified" && t.linear_id && (!t.linear_sync || t.linear_sync.status !== "synced")
+  );
+  if (unsyncedVerified.length > 0) {
+    errors.push(`Linear sync gate: ${unsyncedVerified[0].id} is verified locally but not confirmed synced to Linear. Repair its sync before starting ${taskId}.`);
   }
 }
 
@@ -206,6 +211,13 @@ if (nextStatus === "verified") {
     }
     if (git.merged !== true || !git.merge_commit || !(git.merge_evidence || []).length) {
       errors.push(`${taskId}: Cannot transition to verified. Merged MR evidence is missing. Required: git_flow.merged=true, merge_commit, and merge_evidence.`);
+    }
+    const review = task.review || {};
+    if (review.status !== "passed" || !review.reviewed_at || !review.reviewer_agent_id || !Array.isArray(review.evidence) || !review.evidence.length) {
+      errors.push(`${taskId}: Cannot transition to verified. Independent PR review evidence from the matching test agent is missing or not passed.`);
+    }
+    if (!review.head_sha || !git.submitted_head_sha || review.head_sha !== git.submitted_head_sha) {
+      errors.push(`${taskId}: Cannot transition to verified. PR review must cover the exact submitted HEAD.`);
     }
     const sharedMrTask = tasks.find((other) =>
       other.id !== taskId &&
@@ -341,19 +353,65 @@ appendEvent(statePath, {
   tags: ["task_transition", taskId, nextStatus]
 });
 
-const linearCfg = getLinearConfig(state);
-if (task.linear_id && linearCfg.api_key) {
-  setTimeout(() => {
-    try {
-      const syncScript = path.join(__dirname, "sync-linear-task.js");
-      execSync(`node "${syncScript}" "${statePath}" --task ${taskId}`, {
-        cwd: path.resolve(__dirname, ".."),
-        encoding: "utf8",
-        stdio: "ignore",
-        timeout: 10000
-      });
-    } catch { }
-  }, 100);
+syncLinearOrFail();
+
+function syncLinearOrFail() {
+  if (process.env.NODE_ENV === "test") return;
+  const linearCfg = getLinearConfig(state);
+  if (!task.linear_id) return;
+  task.linear_sync = {
+    status: "pending",
+    transition: `${currentStatus}->${nextStatus}`,
+    attempted_at: new Date().toISOString(),
+    synced_at: "",
+    error: ""
+  };
+  writeWorkflowState(statePath, state, { writer: "transition-task.js" });
+  if (!linearCfg.api_key) {
+    markLinearSyncFailure("Linear API credentials are missing");
+  }
+  try {
+    const syncScript = path.join(__dirname, "sync-linear-task.js");
+    const output = execFileSync(process.execPath, [syncScript, statePath, "--task", taskId], {
+      cwd: path.resolve(__dirname, ".."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 30000
+    });
+    const latest = loadWorkflowState(statePath);
+    const latestTask = latest.task_graph.tasks.find((item) => item.id === taskId);
+    latestTask.linear_sync = {
+      status: "synced",
+      transition: `${currentStatus}->${nextStatus}`,
+      attempted_at: task.linear_sync.attempted_at,
+      synced_at: new Date().toISOString(),
+      error: "",
+      evidence: String(output || "Linear task synchronized").trim().slice(0, 1000)
+    };
+    writeWorkflowState(statePath, latest, { writer: "transition-task.js" });
+    console.log(`Linear sync confirmed: ${taskId} -> ${nextStatus}`);
+  } catch (error) {
+    const detail = error && error.killed
+      ? "Linear sync timed out after 30 seconds"
+      : String((error && (error.stderr || error.stdout || error.message)) || "Linear sync failed").trim();
+    markLinearSyncFailure(detail);
+  }
+}
+
+function markLinearSyncFailure(detail) {
+  const latest = loadWorkflowState(statePath);
+  const latestTask = latest.task_graph.tasks.find((item) => item.id === taskId);
+  latestTask.linear_sync = {
+    status: "failed",
+    transition: `${currentStatus}->${nextStatus}`,
+    attempted_at: task.linear_sync && task.linear_sync.attempted_at || new Date().toISOString(),
+    synced_at: "",
+    error: String(detail).slice(0, 2000)
+  };
+  writeWorkflowState(statePath, latest, { writer: "transition-task.js" });
+  console.error(`Linear sync failed after local transition ${taskId} ${currentStatus} -> ${nextStatus}: ${detail}`);
+  console.error(`Repair with: node scripts/sync-linear-task.js "${file}" --task ${taskId}`);
+  process.exit(1);
 }
 
 function laneStateForTask(task, allTasks) {

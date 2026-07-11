@@ -20,6 +20,7 @@ function runScript(script, args = []) {
       encoding: "utf8",
       env: {
         ...process.env,
+        NODE_ENV: "test",
         SKIP_CONTEXT_CHECK: "1",
         SKIP_INTEGRATION_VERIFY: "1",
         GIT_LIFECYCLE_SKIP: "1",
@@ -164,6 +165,7 @@ function devTask(id, role, lane) {
       base_branch: "main",
       target_branch: "main",
       feature_branch: `delivery/TEST-001/${id}`,
+      submitted_head_sha: "abc123",
       branch_created: true,
       branch_evidence: ["branch"],
       local_tests_passed: true,
@@ -184,6 +186,16 @@ function devTask(id, role, lane) {
       merge_commit: "abc123",
       merge_evidence: ["merged"],
       blockers: []
+    },
+    review: {
+      status: "passed",
+      role: role === "frontend_dev" ? "frontend_test" : "backend_test",
+      reviewer_agent_id: `ses_${id.replace(/[^A-Za-z0-9]/g, "")}reviewer`,
+      reviewed_at: new Date().toISOString(),
+      head_sha: "abc123",
+      merge_request_url: "https://github.com/test/repo/pull/1",
+      summary: "review passed",
+      evidence: ["reviewed exact PR diff"]
     },
     loop: { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] }
   };
@@ -380,6 +392,22 @@ describe("transition-task.js", () => {
     assert.match(result.stderr, /valid frontend_dev OpenCode lease/);
   });
 
+  it("enforces delivery-wide WIP=1 until the current task is verified", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const first = devTask("FE-001", "frontend_dev", "frontend");
+    const second = devTask("BE-001", "backend_dev", "backend");
+    first.status = "implemented";
+    state.task_graph.tasks = [first, second];
+    addLease(state, "BE-001", "backend_dev");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "BE-001", "active", "start"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Delivery WIP=1 violation/);
+    assert.match(result.stderr, /finish FE-001 through verified PR review, merge, and Linear sync/);
+  });
+
   it("rejects implemented without changed files and implementation evidence", () => {
     const state = baseState();
     state.current_state = "implementation_in_progress";
@@ -477,6 +505,22 @@ describe("transition-task.js", () => {
     const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /MR checks must be recorded as passed/);
+  });
+
+  it("rejects verified without independent review of the exact submitted HEAD", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.review = { status: "passed", head_sha: "stale-head", evidence: ["old review"] };
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "done"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Independent PR review evidence/);
+    assert.match(result.stderr, /exact submitted HEAD/);
   });
 
   it("increments loop pressure only when a task fails", () => {
@@ -738,6 +782,23 @@ describe("check-write-scope.js", () => {
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /active scope/);
   });
+
+  it("allows the matching test role into a dev task scope while testing", () => {
+    const state = baseState();
+    state.workspace_root = ".test-tmp";
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.scope.allowed_paths = ["frontend/**"];
+    state.task_graph.tasks = [task];
+    fs.mkdirSync(path.join(TMP, "project", "frontend"), { recursive: true });
+    writeState(state);
+
+    const target = path.join(TMP, "project", "frontend", "file.ts");
+    const result = runScript("check-write-scope.js", [statePath(), target, "frontend_test"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /active scope/);
+  });
 });
 
 describe("record-test-results.js", () => {
@@ -804,6 +865,43 @@ describe("record-test-results.js", () => {
     ]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /dev-task MR check\/merge evidence must come from submit-task\.js/);
+  });
+});
+
+describe("run-task-command.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("records a bounded task command pass", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const result = runScript("run-task-command.js", [statePath(), "FE-001", "--role", "frontend_dev", "--label", "syntax check", "--timeout-ms", "2000", "--", process.execPath, "-e", "process.exit(0)"]);
+    assert.equal(result.exitCode, 0);
+    const run = loadState().task_graph.tasks[0].command_runs[0];
+    assert.equal(run.status, "passed");
+    assert.equal(run.label, "syntax check");
+  });
+
+  it("times out and records evidence instead of hanging", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_dev");
+    writeState(state);
+
+    const result = runScript("run-task-command.js", [statePath(), "FE-001", "--role", "frontend_dev", "--label", "stuck build", "--timeout-ms", "1000", "--", process.execPath, "-e", "setInterval(()=>{},1000)"]);
+    assert.equal(result.exitCode, 124);
+    assert.match(result.stderr, /timed out after 1000ms/);
+    assert.equal(loadState().task_graph.tasks[0].command_runs[0].status, "timed_out");
   });
 });
 
@@ -891,5 +989,22 @@ describe("plan-agent-dispatch.js", () => {
     assert.equal(request.role, "frontend_test");
     assert.equal(request.agent_name, "agent-spec-frontend-test");
     assert.match(request.prompt, /record-test-results/);
+    assert.match(request.prompt, /record-pr-review/);
+  });
+
+  it("plans only one task even when frontend and backend are both runnable", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.task_graph.tasks = [
+      devTask("FE-001", "frontend_dev", "frontend"),
+      devTask("BE-001", "backend_dev", "backend")
+    ];
+    writeState(state);
+
+    const result = runScript("plan-agent-dispatch.js", [statePath(), "--enable-auto"]);
+    assert.equal(result.exitCode, 0);
+    const planned = loadState().agent_dispatch.spawn_requests.filter((item) => item.status === "planned");
+    assert.equal(planned.length, 1);
+    assert.deepEqual(planned[0].task_ids, ["FE-001"]);
   });
 });

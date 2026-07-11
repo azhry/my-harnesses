@@ -30,8 +30,10 @@ function validateSpawnIdentity(role, agentId, agentName) {
     errors.push(`${role}: expected OpenCode agent ${expected}, got ${normalizedName}.`);
   }
 
-  if (!/^ses_[A-Za-z0-9]+$/.test(normalizedId)) {
-    errors.push(`${role}: agent id must be the real OpenCode child session id starting with "ses_". Got "${normalizedId || "(empty)"}".`);
+  const isOpenCodeSession = /^ses_[A-Za-z0-9]+$/.test(normalizedId);
+  const isCodexChildTask = /^\/root(?:\/[a-z0-9_]+)+$/.test(normalizedId);
+  if (!isOpenCodeSession && !isCodexChildTask) {
+    errors.push(`${role}: agent id must be a real OpenCode child session id (ses_...) or Codex child task path (/root/...). Got "${normalizedId || "(empty)"}".`);
   }
 
   return errors;

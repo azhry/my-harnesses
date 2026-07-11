@@ -209,8 +209,11 @@ function staticAllowedPath(allowedPath) {
 
 function canUseTaskScope(task, currentRole) {
   if (!currentRole) return false;
-  if (task.role !== currentRole) return false;
-  return task.status === "active";
+  if (task.role === currentRole && task.status === "active") return true;
+  if (task.status !== "testing") return false;
+  if (task.role === "frontend_dev" && currentRole === "frontend_test") return true;
+  if (task.role === "backend_dev" && currentRole === "backend_test") return true;
+  return false;
 }
 
 if (taskScopes.length) {

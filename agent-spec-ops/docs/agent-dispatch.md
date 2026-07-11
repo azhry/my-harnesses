@@ -2,15 +2,16 @@
 
 Dispatch runs only in `implementation_in_progress`.
 
-Frontend and backend may run in parallel when write scopes do not overlap.
-Dev and test are separate agent roles.
+Delivery WIP is one task globally. Dev and test are separate agent roles that
+hand off the same task until review, merge, verification, and Linear sync are
+complete.
 Each lease must be recorded with the exact OpenCode adapter name:
 `agent-spec-frontend-dev`, `agent-spec-frontend-test`,
 `agent-spec-backend-dev`, or `agent-spec-backend-test`.
 
 ```text
-frontend_dev -> frontend_test(record-test-results) -> submit-task(push/MR/comment/checks/merge)
-backend_dev  -> backend_test(record-test-results)  -> submit-task(push/MR/comment/checks/merge)
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/PR) -> frontend_test(record-pr-review) -> submit-task(checks/merge)
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/PR) -> backend_test(record-pr-review) -> submit-task(checks/merge)
 ```
 
 Commands:

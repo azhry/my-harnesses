@@ -115,6 +115,7 @@ if (status.stdout.trim()) {
 } else {
   console.log("commit: no changes");
 }
+const headSha = runRequired(repoPath, "git", ["rev-parse", "HEAD"], "cannot resolve submitted HEAD").stdout.trim();
 
 const submitCheck = args.testCommand
   ? runTest(repoPath, args.testCommand)
@@ -155,10 +156,13 @@ const comment = pr.ok ? commentMergeRequest(repoPath, pr.number || pr.url, {
 }) : { ok: false, url: "", evidence: [], error: "merge request missing" };
 if (!comment.ok) blockers.push(comment.error || "merge request status comment failed");
 
-const merge = pr.ok && comment.ok && submitCheck.passed
+const review = validateRecordedReview(task, headSha);
+if (!review.ok) blockers.push(review.error);
+
+const merge = pr.ok && comment.ok && submitCheck.passed && review.ok
   ? mergeMergeRequest(repoPath, pr.number || pr.url, policy)
-  : { ok: false, attempted: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "merge skipped until tests and MR comment pass" };
-if (pr.ok && comment.ok && submitCheck.passed && !merge.ok) {
+  : { ok: false, attempted: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "merge skipped until tests, independent PR review, and MR comment pass" };
+if (pr.ok && comment.ok && submitCheck.passed && review.ok && !merge.ok) {
   blockers.push(merge.error || "merge failed");
 }
 
@@ -166,6 +170,7 @@ task.git_flow = {
   base_branch: baseBranch,
   target_branch: targetBranch,
   feature_branch: branchName,
+  submitted_head_sha: headSha,
   branch_created: true,
   branch_evidence: [`checked out ${branchName}`],
   local_tests_passed: submitCheck.passed,
@@ -175,7 +180,7 @@ task.git_flow = {
   merge_request_status: merge.ok ? "merged" : pr.ok ? "open" : "blocked",
   merge_request_url: pr.url || "",
   merge_request_evidence: pr.evidence || [],
-  merge_request_comment_status: comment.ok ? (test.passed ? "passed" : "failed") : "blocked",
+  merge_request_comment_status: comment.ok ? (submitCheck.passed ? "passed" : "failed") : "blocked",
   merge_request_comment_url: comment.url || "",
   merge_request_comment_evidence: comment.evidence || [],
   auto_merge: merge.attempted || false,
@@ -195,6 +200,9 @@ if (!submitCheck.passed || blockers.length) {
   console.error("submit incomplete:");
   if (!submitCheck.passed) console.error(`- tests failed: ${submitCheck.summary}`);
   for (const blocker of blockers) console.error(`- ${blocker}`);
+  if (!review.ok && pr.ok) {
+    console.error(`next: matching ${testRole} agent reviews ${pr.url} and runs record-pr-review.js for HEAD ${headSha}, then rerun submit-task.js`);
+  }
   process.exit(1);
 }
 
@@ -236,6 +244,20 @@ function validateRecordedPassedTest(task, runDir) {
     errors.push(`task.test.output_file does not exist: ${test.output_file}`);
   }
   return errors;
+}
+
+function validateRecordedReview(task, headSha) {
+  const review = task.review || {};
+  if (review.status !== "passed") {
+    return { ok: false, error: "independent PR review is not passed; use record-pr-review.js from the matching test agent" };
+  }
+  if (!review.reviewed_at || !review.reviewer_agent_id || !Array.isArray(review.evidence) || !review.evidence.length) {
+    return { ok: false, error: "independent PR review evidence is incomplete" };
+  }
+  if (!review.head_sha || review.head_sha !== headSha) {
+    return { ok: false, error: `PR review is stale: reviewed ${review.head_sha || "no HEAD"}, submitted HEAD is ${headSha}` };
+  }
+  return { ok: true, error: "" };
 }
 
 function resolveRunPath(runDir, value) {
@@ -555,17 +577,20 @@ function runRequired(cwd, command, args, message) {
 }
 
 function run(cwd, command, args, options = {}) {
+  const timeout = options.timeout || 30000;
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    timeout: options.timeout || 30000,
+    timeout,
     maxBuffer: 10 * 1024 * 1024
   });
   return {
     ok: result.status === 0,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
-    error: result.error ? result.error.message : ""
+    error: result.error && result.error.code === "ETIMEDOUT"
+      ? `${command} timed out after ${timeout}ms`
+      : result.error ? result.error.message : ""
   };
 }
 

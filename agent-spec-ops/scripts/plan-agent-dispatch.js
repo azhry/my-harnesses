@@ -28,7 +28,7 @@ const tasks = state.task_graph.tasks || [];
 const taskById = new Map(tasks.map((task) => [task.id, task]));
 
 function taskDone(task) {
-  return task && ["implemented", "verified", "waived", "not_applicable"].includes(task.status);
+  return task && ["verified", "waived", "not_applicable"].includes(task.status);
 }
 
 function depsSatisfied(task) {
@@ -127,8 +127,10 @@ function promptForTask(task, dispatchRole) {
       "Use transition-task.js to move the task to testing if needed.",
       "Run the verification commands from the task plan.",
       "Record passed/failed evidence with record-test-results.js using your test role.",
+      "After submit-task.js creates the PR, inspect that exact PR and record passed/failed review evidence with record-pr-review.js for the submitted HEAD.",
+      "A failed PR review returns the same task to dev; do not dispatch or start a different task.",
       "Do not pass --merged, --merge-commit, or --merge-check-evidence to record-test-results.js for dev tasks.",
-      "Passed tests alone are not verified; submit-task.js must create/comment/check/merge the task MR afterward.",
+      "Passed tests alone are not verified; submit-task.js creates the PR, independent review must pass, then submit-task.js may check and merge it.",
       "On failure, transition the task to failed so the dev agent loop resumes."
     ]
     : [];
@@ -144,11 +146,15 @@ function promptForTask(task, dispatchRole) {
     `Allowed write scope: ${scope(task).join(", ")}`,
     `Definition of done: ${(task.definition_of_done || []).join("; ")}`,
     `Verification: ${(task.verification || []).join("; ")}`,
+    "Run build/test commands through run-task-command.js with a task label and a maximum 120000ms timeout. On timeout or failure, record evidence and hand the same task back; do not wait indefinitely or start another task.",
     "Update only your assigned task evidence/artifacts. The orchestrator owns top-level workflow transitions."
   ].join("\n");
 }
 
 function runnableTasks() {
+  const lifecycleTask = tasks.find((task) =>
+    ["active", "implemented", "testing", "failed", "blocked"].includes(task.status)
+  );
   const activeLeases = activeLeaseTaskIds();
   const blockedRoles = activeRoles();
   return tasks.filter((task) => {
@@ -157,6 +163,9 @@ function runnableTasks() {
       return false;
     }
     if (!["planned", "failed", "implemented"].includes(task.status)) {
+      return false;
+    }
+    if (lifecycleTask && lifecycleTask.id !== task.id) {
       return false;
     }
     if (!depsSatisfied(task)) {
@@ -187,7 +196,7 @@ function chooseParallelTasks(candidates, maxParallel) {
       continue;
     }
     chosen.push(task);
-    if (chosen.length >= maxParallel) {
+    if (chosen.length >= Math.min(maxParallel, 1)) {
       break;
     }
   }
@@ -212,10 +221,16 @@ if (enableAuto) {
   state.agent_dispatch.auto_spawn = true;
 }
 
+// Delivery execution is deliberately serialized. Dev and test agents hand the
+// same task to each other, but a second task cannot start until the first one is
+// verified (including PR review/merge and Linear synchronization).
+state.agent_dispatch.parallel_allowed = false;
+state.agent_dispatch.max_parallel_agents = 1;
+
 const eligibleState = state.current_state === "implementation_in_progress";
 const candidates = eligibleState ? runnableTasks() : [];
 const { chosen, blockers } = chooseParallelTasks(candidates, state.agent_dispatch.max_parallel_agents || 2);
-const shouldPlan = state.agent_dispatch.mode === "multi_agent" && state.agent_dispatch.auto_spawn && state.agent_dispatch.parallel_allowed;
+const shouldPlan = state.agent_dispatch.mode === "multi_agent" && state.agent_dispatch.auto_spawn;
 
 if (!shouldPlan) {
   state.agent_dispatch.status = "blocked";

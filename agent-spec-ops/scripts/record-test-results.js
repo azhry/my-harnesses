@@ -167,7 +167,7 @@ const summary = args.status === "passed"
 
 appendEvent(statePath, {
   type: args.status === "passed" ? "test_passed" : "test_failed",
-  role_context: task.role,
+  role_context: expectedRole,
   task_id: args.taskId,
   target: "test",
   summary,

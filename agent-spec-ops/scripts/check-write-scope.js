@@ -4,8 +4,20 @@
 const fs = require("fs");
 const path = require("path");
 const { loadWorkflowState } = require("./lib/state-store");
+const { leaseIdentityErrors } = require("./lib/agent-identity");
 
-const [file, targetPath, role] = process.argv.slice(2);
+const positional = [];
+let agentId = process.env.AGENT_SPEC_OPS_AGENT_ID || process.env.CODEX_SESSION_ID || "";
+for (let index = 2; index < process.argv.length; index += 1) {
+  const arg = process.argv[index];
+  if (arg === "--agent-id" || arg === "--session-id") {
+    agentId = process.argv[++index] || "";
+    continue;
+  }
+  positional.push(arg);
+}
+
+const [file, targetPath, role] = positional;
 
 if (!file || !targetPath) {
   console.error("Usage: node scripts/check-write-scope.js path/to/workflow-state.json TARGET_PATH [ROLE]");
@@ -14,6 +26,7 @@ if (!file || !targetPath) {
   console.error("Exits 0 if allowed, 1 if denied.");
   console.error("");
   console.error("ROLE is required for project writes. Harness run artifacts are always allowed.");
+  console.error("Use --agent-id or AGENT_SPEC_OPS_AGENT_ID to reject stale/superseded worker sessions before writing.");
   process.exit(1);
 }
 
@@ -217,6 +230,14 @@ function canUseTaskScope(task, currentRole) {
 }
 
 if (taskScopes.length) {
+  if (agentId) {
+    const activeLease = findActiveLeaseForAgent(state, taskScopes, checkRole, agentId);
+    if (!activeLease) {
+      console.error(`DENIED: agent/session ${agentId} does not hold an active ${checkRole} lease for task(s): ${taskScopes.join(", ")}.`);
+      console.error("  The worker may have been superseded or stopped. Ask the orchestrator for a fresh spawn lease before writing.");
+      process.exit(1);
+    }
+  }
   console.log(`OK: ${targetPath} is within active scope of task(s): ${taskScopes.join(", ")} for role ${checkRole}`);
   process.exit(0);
 }
@@ -249,3 +270,18 @@ console.error(`  Resolved target: ${resolvedTarget}`);
 console.error(`  Workspace root: ${workspaceRoot}`);
 console.error(`  Agent output must go inside runs/${deliveryId || "<DELIVERY_ID>"}/ or an active task scope.`);
 process.exit(1);
+
+function findActiveLeaseForAgent(workflowState, taskIds, currentRole, currentAgentId) {
+  const ids = new Set(taskIds);
+  const leases = workflowState.agent_dispatch && Array.isArray(workflowState.agent_dispatch.leases)
+    ? workflowState.agent_dispatch.leases
+    : [];
+  return leases.find((lease) =>
+    lease &&
+    ids.has(lease.task_id) &&
+    lease.role === currentRole &&
+    lease.agent_id === currentAgentId &&
+    ["leased", "active"].includes(lease.status || "leased") &&
+    leaseIdentityErrors(lease).length === 0
+  ) || null;
+}

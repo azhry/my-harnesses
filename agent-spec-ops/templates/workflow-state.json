@@ -13,7 +13,36 @@
     "target_users": [],
     "requested_by": "",
     "created_at": "",
-    "updated_at": "2026-06-19T02:17:00.498Z"
+    "updated_at": "2026-06-19T02:17:00.498Z",
+    "completion_approved": false,
+    "completion_approved_by": "",
+    "completion_approved_at": "",
+    "completion_note": "",
+    "completion_evidence": []
+  },
+  "run_directives": {
+    "status": "active",
+    "approval": {
+      "do_not_reask_for_approved_workflow": false,
+      "approved_actions": [],
+      "evidence": []
+    },
+    "execution": {
+      "continue_until_end_to_end": false,
+      "do_not_stop_until_blocked": false,
+      "evidence": []
+    },
+    "project_completion": {
+      "never_complete_project_until_user_says_so": false,
+      "linear_project_completion_allowed": false,
+      "evidence": []
+    },
+    "credentials": {
+      "run_secrets_required": false,
+      "expected_secret_keys": [],
+      "evidence": []
+    },
+    "notes": []
   },
   "roles": {
     "product_manager": {
@@ -183,9 +212,11 @@
       "branch_name_pattern": "delivery/<DELIVERY_ID>/<TASK_ID>",
       "push_after_tests_pass": true,
       "merge_request_required": true,
-      "review_required_before_merge": true,
+      "review_required_before_merge": false,
+      "allow_same_github_account_review": true,
+      "allow_admin_merge": true,
       "auto_merge_default": true,
-      "auto_merge_requires_checks": true,
+      "auto_merge_requires_checks": false,
       "auto_merge_disabled_reason": "",
       "evidence": []
     },

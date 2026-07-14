@@ -28,7 +28,7 @@ const transitions = {
   task_breakdown: ["implementation_in_progress", "blocked"],
   implementation_in_progress: ["implementation_review", "task_breakdown", "blocked"],
   implementation_review: ["done", "implementation_in_progress", "task_breakdown", "blocked"],
-  done: [],
+  done: ["task_breakdown"],
   blocked: ["intake", "tool_readiness", "knowledge_discovery", "product_requirements", "task_breakdown", "implementation_in_progress"]
 };
 

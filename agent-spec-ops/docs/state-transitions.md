@@ -16,9 +16,10 @@ Every transition requires its checklist to be true.
 | `system_rules_review -> design_assembly` | Human requested design/rule changes |
 | `task_breakdown -> implementation_in_progress` | Tasks recorded with `record-task-breakdown.js`, Linear tasks created, task template complete, dependencies checked, multi-agent dispatch ready |
 | `implementation_in_progress -> implementation_review` | All frontend/backend tasks verified, tests recorded, MR comments recorded, MR checks passed, task MRs merged, implementation mapped to requirements |
-| `implementation_review -> done` | Human approved `implementation_review` |
+| `implementation_review -> done` | Human approved `implementation_review` and explicit completion approval was recorded with `record-completion-approval.js` |
 | `implementation_review -> implementation_in_progress` | Human requested implementation fixes |
 | `implementation_review -> task_breakdown` | Human requested rework or scope/task changes |
+| `done -> task_breakdown` | Human identified remaining scope or rework |
 
 ## Task Status
 

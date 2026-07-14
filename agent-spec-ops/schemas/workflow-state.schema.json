@@ -56,6 +56,7 @@
       ]
     },
     "delivery": { "$ref": "#/$defs/delivery" },
+    "run_directives": { "$ref": "#/$defs/runDirectives" },
     "roles": {
       "type": "object",
       "required": [
@@ -354,7 +355,61 @@
         "target_users": { "type": "array", "items": { "type": "string" } },
         "requested_by": { "type": "string" },
         "created_at": { "type": "string" },
-        "updated_at": { "type": "string" }
+        "updated_at": { "type": "string" },
+        "completion_approved": { "type": "boolean" },
+        "completion_approved_by": { "type": "string" },
+        "completion_approved_at": { "type": "string" },
+        "completion_note": { "type": "string" },
+        "completion_evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "runDirectives": {
+      "type": "object",
+      "required": ["status", "approval", "execution", "project_completion", "credentials", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["active", "inactive"] },
+        "approval": {
+          "type": "object",
+          "required": ["do_not_reask_for_approved_workflow", "approved_actions", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "do_not_reask_for_approved_workflow": { "type": "boolean" },
+            "approved_actions": { "type": "array", "items": { "type": "string" } },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "required": ["continue_until_end_to_end", "do_not_stop_until_blocked", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "continue_until_end_to_end": { "type": "boolean" },
+            "do_not_stop_until_blocked": { "type": "boolean" },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "project_completion": {
+          "type": "object",
+          "required": ["never_complete_project_until_user_says_so", "linear_project_completion_allowed", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "never_complete_project_until_user_says_so": { "type": "boolean" },
+            "linear_project_completion_allowed": { "type": "boolean" },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "credentials": {
+          "type": "object",
+          "required": ["run_secrets_required", "expected_secret_keys", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "run_secrets_required": { "type": "boolean" },
+            "expected_secret_keys": { "type": "array", "items": { "type": "string" } },
+            "evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
       }
     },
     "roleState": {
@@ -597,6 +652,8 @@
         "branch_name_pattern",
         "push_after_tests_pass",
         "merge_request_required",
+        "allow_same_github_account_review",
+        "allow_admin_merge",
         "auto_merge_default",
         "auto_merge_requires_checks",
         "auto_merge_disabled_reason",
@@ -610,6 +667,8 @@
         "push_after_tests_pass": { "type": "boolean" },
         "merge_request_required": { "type": "boolean" },
         "review_required_before_merge": { "type": "boolean" },
+        "allow_same_github_account_review": { "type": "boolean" },
+        "allow_admin_merge": { "type": "boolean" },
         "auto_merge_default": { "type": "boolean" },
         "auto_merge_requires_checks": { "type": "boolean" },
         "auto_merge_disabled_reason": { "type": "string" },
@@ -761,7 +820,7 @@
         "role": { "$ref": "#/$defs/roleName" },
         "agent_name": { "type": "string" },
         "agent_id": { "type": "string" },
-        "status": { "enum": ["requested", "leased", "active", "released", "complete", "completed", "expired"] },
+        "status": { "enum": ["requested", "leased", "active", "released", "complete", "completed", "expired", "superseded"] },
         "started_at": { "type": "string" },
         "expires_at": { "type": "string" },
         "completed_at": { "type": "string" }

@@ -75,7 +75,7 @@ if (nextState === "implementation_in_progress") {
   state.agent_dispatch.max_parallel_agents = Math.max(Number(state.agent_dispatch.max_parallel_agents || 0), 2);
 }
 
-if (nextState === "task_breakdown" && ["implementation_in_progress", "implementation_review"].includes(currentState)) {
+if (nextState === "task_breakdown" && ["implementation_in_progress", "implementation_review", "done"].includes(currentState)) {
   resetImplementationReview(state);
 }
 
@@ -171,6 +171,7 @@ function checklistErrors(candidate, from, to) {
 
   if (from === "implementation_review" && to === "done") {
     requireGate(candidate, "implementation_review", result);
+    requireCompletionApproval(candidate, result);
   }
 
   return result;
@@ -200,6 +201,19 @@ function requireGate(candidate, key, result) {
   }
   if (!gate || !gate.decided_at) {
     result.push(`gates.${key}.decided_at is required`);
+  }
+}
+
+function requireCompletionApproval(candidate, result) {
+  const delivery = candidate.delivery || {};
+  if (delivery.completion_approved !== true) {
+    result.push("delivery.completion_approved must be true before transitioning to done. Use record-completion-approval.js only after the human explicitly says this delivery/project is complete.");
+  }
+  if (!delivery.completion_approved_by) {
+    result.push("delivery.completion_approved_by is required before done");
+  }
+  if (!delivery.completion_approved_at) {
+    result.push("delivery.completion_approved_at is required before done");
   }
 }
 

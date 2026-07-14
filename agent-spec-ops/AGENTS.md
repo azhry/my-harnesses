@@ -21,6 +21,11 @@ runs/<DELIVERY_ID>/workflow-state.json --audit` and trust that issue-by-issue
 report. Do not hand-roll Linear GraphQL filters in agent chat; they miss
 paginated issues, stale ids, project filters, and active tasks.
 
+For Codex session reviews, run `node scripts/audit-codex-sessions.js --match
+<PROJECT_OR_RUN_MARKER> --state runs/<DELIVERY_ID>/workflow-state.json` before
+changing the harness. Treat repeated findings as harness defects to fix, not as
+one-off agent mistakes.
+
 ## Required Start
 
 ```bash
@@ -32,6 +37,21 @@ Use transition scripts. Do not edit `workflow-state.json` status fields by hand.
 Real run state is sealed by trusted harness writers. If context recovery or
 state validation reports an integrity failure, stop and repair before
 continuing.
+
+Do not declare the whole project complete or set a Linear project to Completed
+just because task issues are done. `implementation_review` approves a delivery
+slice only. Closing a run requires explicit human completion approval recorded
+with `record-completion-approval.js`; otherwise, remaining scope routes back to
+`task_breakdown`.
+
+If the user provides Linear/GitHub credentials for a run, write them only to the
+run secret env file with `record-run-secrets.js`. Never store raw tokens in
+`workflow-state.json`, events, logs, docs, or prompts:
+
+```bash
+node scripts/record-run-secrets.js runs/<DELIVERY_ID>/workflow-state.json --set LINEAR_API_KEY=<value>
+node scripts/record-run-secrets.js runs/<DELIVERY_ID>/workflow-state.json --set GITHUB_TOKEN=<value>
+```
 
 ## Compact Flow
 
@@ -69,11 +89,12 @@ After recording tasks, run `sync-linear-task.js --create`.
 
 Delivery WIP is exactly one task. Dev and test are separate agents handing off
 the same task; no second task may start until the first is verified, merged,
-reviewed, and confirmed synchronized to Linear:
+and confirmed synchronized to Linear. Same-account/admin merge and protected
+checks are controlled by `implementation.git_policy`:
 
 ```text
-frontend_dev -> frontend_test(record-test-results) -> submit-task(push/PR) -> frontend_test(record-pr-review) -> submit-task(checks/merge) -> verified/Linear sync
-backend_dev  -> backend_test(record-test-results)  -> submit-task(push/PR) -> backend_test(record-pr-review) -> submit-task(checks/merge) -> verified/Linear sync
+frontend_dev -> frontend_test(record-test-results) -> submit-task(push/PR/admin-merge if allowed) -> verified/Linear sync
+backend_dev  -> backend_test(record-test-results)  -> submit-task(push/PR/admin-merge if allowed) -> verified/Linear sync
 ```
 
 If test fails, return to dev. If the dev/test loop reaches 3 attempts, stop and
@@ -93,13 +114,17 @@ Hard gates:
 
 - Orchestrator cannot write project files or run dev/test directly.
 - Project writes require `check-write-scope.js` with the matching active role.
+- Worker sessions should pass `--agent-id` (or set `AGENT_SPEC_OPS_AGENT_ID`)
+  when running `check-write-scope.js`; superseded workers must stop before
+  writing project files.
 - Task transitions require a recorded spawn lease from `record-agent-spawn.js` with the exact `agent-spec-*` OpenCode agent name.
 - `implemented` requires scoped changed files and implementation evidence.
 - Test results require `testing` status and a matching test-agent lease.
-- `verified` requires changed files, tests, branch, push, MR URL, passed MR status comment URL, passed MR check evidence, and merged MR evidence.
-- Every PR requires an independent matching test-agent review recorded by `record-pr-review.js` against the exact submitted HEAD before merge.
+- `verified` requires changed files, tests, branch, push, MR URL, passed MR status comment URL, and merged MR evidence. MR check evidence is required only when `auto_merge_requires_checks=true`.
+- `review_required_before_merge=true` requires an independent matching test-agent review recorded by `record-pr-review.js` against the exact submitted HEAD before merge.
+- `allow_same_github_account_review=true` and `allow_admin_merge=true` authorize `submit-task.js` to use same-account/admin GitHub merge when normal merge is blocked by repository review protection.
 - Every task transition synchronizes Linear synchronously. A failed or timed-out sync exits non-zero and blocks the next task.
-- Do not run raw `gh pr merge`; use `submit-task.js` so checks are inspected before merge.
+- Do not run raw `gh pr merge`; use `submit-task.js` so the run policy decides whether protected checks/reviews are required or admin merge is allowed.
 - `record-test-results.js` records tests and MR status comments only; dev-task MR check/merge evidence must come from `submit-task.js`.
 - `submit-task.js` refuses unrelated dirty files.
 - `seal-state.js` is trusted manual repair only. It refuses invalid workflow data and must not be used as normal recovery.
@@ -112,7 +137,9 @@ node scripts/record-task-breakdown.js runs/<DELIVERY_ID>/workflow-state.json --f
 node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> <STATUS> "reason"
 node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json --enable-auto
 node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>
+node scripts/record-run-secrets.js runs/<DELIVERY_ID>/workflow-state.json --set LINEAR_API_KEY=<value> --set GITHUB_TOKEN=<value>
 node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> <ROLE>
+node scripts/audit-codex-sessions.js --match <PROJECT_OR_RUN_MARKER> --state runs/<DELIVERY_ID>/workflow-state.json
 node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --audit
 node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>"
 node scripts/record-pr-review.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --status passed --role <TEST_ROLE> --summary "review summary" --evidence "review evidence"

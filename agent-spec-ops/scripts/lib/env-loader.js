@@ -9,6 +9,11 @@ const DEFAULT_SECRET_FILES = [
   path.join(root, ".env.agent-spec-ops")
 ];
 
+const SECRET_FILE_HEADER = [
+  "# Agent Spec Ops run secrets.",
+  "# This file is intentionally untracked. Do not copy values into workflow-state.json, logs, or docs."
+].join("\n");
+
 let loadedFiles = [];
 const loadedFileSet = new Set();
 
@@ -57,6 +62,53 @@ function runSecretFile(stateFile) {
   return path.join(runDir, ".agent-spec-ops.secrets.env");
 }
 
+function readEnvFile(file) {
+  const values = {};
+  if (!file || !fs.existsSync(file)) {
+    return values;
+  }
+  const contents = fs.readFileSync(file, "utf8");
+  for (const line of contents.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    values[match[1]] = unquote(match[2].trim());
+  }
+  return values;
+}
+
+function writeRunSecretEnv(stateFile, updates, options = {}) {
+  const file = path.resolve(options.file || runSecretFile(stateFile));
+  if (!file) {
+    throw new Error("Cannot resolve run secret file");
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const current = readEnvFile(file);
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`Invalid environment variable name: ${key}`);
+    }
+    if (value === undefined || value === null || String(value) === "") {
+      continue;
+    }
+    current[key] = String(value);
+  }
+  const lines = [SECRET_FILE_HEADER, ""];
+  for (const key of Object.keys(current).sort()) {
+    lines.push(`${key}=${quoteEnvValue(current[key])}`);
+  }
+  fs.writeFileSync(file, `${lines.join("\n")}\n`, { mode: 0o600 });
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    // Best-effort permissions on platforms that support chmod.
+  }
+  loadedFileSet.delete(file);
+  loadSecretEnv(stateFile);
+  return file;
+}
+
 function unquote(value) {
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
@@ -67,4 +119,12 @@ function unquote(value) {
   return value;
 }
 
-module.exports = { loadSecretEnv, runSecretFile };
+function quoteEnvValue(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(text)) {
+    return text;
+  }
+  return JSON.stringify(text);
+}
+
+module.exports = { loadSecretEnv, readEnvFile, runSecretFile, writeRunSecretEnv };

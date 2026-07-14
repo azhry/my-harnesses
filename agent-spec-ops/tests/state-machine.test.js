@@ -6,6 +6,7 @@ const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { execSync } = require("node:child_process");
 const { canTransition } = require("../scripts/lib/state-machine");
+const { buildPrBody, assertNoPrPlaceholders } = require("../scripts/lib/pr-body");
 const { writeWorkflowState } = require("../scripts/lib/state-store");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -237,6 +238,38 @@ describe("compact state machine", () => {
     assert.equal(canTransition("implementation_review", "done"), true);
     assert.equal(canTransition("done", "task_breakdown"), true);
     assert.equal(canTransition("implementation_review", "knowledge_discovery"), false);
+  });
+});
+
+describe("PR body generation", () => {
+  it("renders task evidence instead of leaking template placeholders", () => {
+    const task = devTask("BE-123", "backend_dev", "backend");
+    task.title = "Implement tenant quota API";
+    task.description = "Adds tenant, client, and quota assignment GraphQL behavior.";
+    task.source_requirements = ["REQ-tenant-quota"];
+    task.linear_id = "FLEX-123";
+    task.expected_changes = ["backend/internal/tenant/**"];
+    task.implementation.changed_files = [
+      "backend/internal/tenant/tenant.go",
+      "backend/internal/graph/handler.go"
+    ];
+    task.test.commands = ["go test ./internal/tenant ./internal/graph"];
+    task.test.output_file = "test-output/be-123.log";
+
+    const body = buildPrBody({ deliveryId: "FQ-BACKEND-001", taskId: "BE-123", task });
+
+    assert.match(body, /Implement tenant quota API/);
+    assert.match(body, /Adds tenant, client, and quota assignment GraphQL behavior/);
+    assert.match(body, /backend\/internal\/tenant\/tenant.go: updated for this task scope/);
+    assert.match(body, /go test \.\/internal\/tenant \.\/internal\/graph/);
+    assert.doesNotMatch(body, /<[^>\n]+>/);
+  });
+
+  it("rejects unresolved PR placeholders", () => {
+    assert.throws(
+      () => assertNoPrPlaceholders("## Summary\n\n<1-3 sentences describing what this PR does>\n"),
+      /PR body still contains placeholder text/
+    );
   });
 });
 

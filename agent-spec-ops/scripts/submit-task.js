@@ -6,6 +6,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { loadSecretEnv } = require("./lib/env-loader");
 const { hasValidLease, hasRecordedLease, expectedAgentName } = require("./lib/agent-identity");
+const { buildPrBody } = require("./lib/pr-body");
 const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
@@ -374,6 +375,9 @@ function writeTestOutput(runDir, taskId, output) {
 }
 
 function ensureMergeRequest(repo, options) {
+  const existingAnyState = findExistingMergeRequest(repo, options.branchName);
+  if (existingAnyState.ok) return existingAnyState;
+
   const existing = run(repo, "gh", ["pr", "view", "--head", options.branchName, "--json", "number,url,state"]);
   if (existing.ok) {
     const parsed = parseJson(existing.stdout);
@@ -427,6 +431,21 @@ function ensureMergeRequest(repo, options) {
   return { ok: true, url: parsed.url, number: parsed.number, evidence: [`created MR #${parsed.number}`] };
 }
 
+function findExistingMergeRequest(repo, branchName) {
+  const result = run(repo, "gh", ["pr", "list", "--state", "all", "--head", branchName, "--json", "number,url,state,headRefName,mergeCommit"]);
+  if (!result.ok) return { ok: false };
+  const parsed = parseJson(result.stdout);
+  if (!Array.isArray(parsed) || !parsed.length) return { ok: false };
+  const exact = parsed.find((item) => item.headRefName === branchName) || parsed[0];
+  const state = String(exact.state || "unknown").toLowerCase();
+  return {
+    ok: true,
+    url: exact.url,
+    number: exact.number,
+    evidence: [`found existing ${state} MR #${exact.number}`]
+  };
+}
+
 function flagUnsupported(result) {
   const text = `${result && result.stderr || ""}\n${result && result.stdout || ""}`;
   return /unknown flag:\s+--json/i.test(text);
@@ -443,27 +462,18 @@ function prNumberFromUrl(url) {
 }
 
 function writePrBody(repo, options) {
-  const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
-  const fallback = `Task: ${options.taskId}\n\n${options.task.description || ""}\n`;
-  const body = fs.existsSync(templatePath)
-    ? fs.readFileSync(templatePath, "utf8")
-      .replace(/<TASK_ID>/g, options.taskId)
-      .replace(/<DELIVERY_ID>/g, options.deliveryId)
-    : fallback;
+  const body = buildPrBody(options);
   const file = path.join(repo, `.agent-spec-ops-${options.taskId}-mr.md`);
   fs.writeFileSync(file, body);
   return file;
 }
 
 function commentMergeRequest(repo, prRef, details) {
-  const body = [
-    `Harness test status: ${details.status}`,
-    "",
-    `Task: ${details.taskId}`,
-    `Command: ${details.command}`,
-    `Evidence: ${details.evidence}`,
-    `Summary: ${details.summary}`
-  ].join("\n");
+  const body = statusCommentBody(details);
+  const existing = findExistingStatusComment(repo, prRef, details.taskId, body);
+  if (existing.ok) {
+    return { ok: true, url: existing.url, evidence: [`reused existing MR status ${details.status}`, existing.url] };
+  }
   const result = run(repo, "gh", ["pr", "comment", String(prRef), "--body", body]);
   if (!result.ok) return { ok: false, url: "", evidence: [], error: result.stderr || result.stdout || result.error };
   const url = result.stdout.trim();
@@ -471,6 +481,28 @@ function commentMergeRequest(repo, prRef, details) {
     return { ok: false, url: "", evidence: [], error: "gh pr comment did not return a real comment URL" };
   }
   return { ok: true, url, evidence: [`commented MR status ${details.status}`, url] };
+}
+
+function statusCommentBody(details) {
+  return [
+    `Harness test status: ${details.status}`,
+    "",
+    `Task: ${details.taskId}`,
+    `Command: ${details.command}`,
+    `Evidence: ${details.evidence}`,
+    `Summary: ${details.summary}`
+  ].join("\n");
+}
+
+function findExistingStatusComment(repo, prRef, taskId, exactBody) {
+  const result = run(repo, "gh", ["pr", "view", String(prRef), "--json", "comments"]);
+  if (!result.ok) return { ok: false };
+  const parsed = parseJson(result.stdout);
+  const comments = parsed && Array.isArray(parsed.comments) ? parsed.comments : [];
+  const exact = comments.find((comment) => String(comment.body || "").trim() === exactBody.trim());
+  if (exact && exact.url) return { ok: true, url: exact.url };
+  void taskId;
+  return { ok: false };
 }
 
 function isMergeRequestCommentUrl(commentUrl) {

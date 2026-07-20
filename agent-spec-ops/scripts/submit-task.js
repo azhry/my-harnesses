@@ -347,6 +347,36 @@ function checkoutBranch(repo, branchName) {
 }
 
 function runTest(repo, command) {
+  const isWin = process.platform === "win32";
+  if (isWin) {
+    const parts = command.split(/\s+&&\s+/);
+    let allOutput = [];
+    for (const part of parts) {
+      const result = spawnSync(part, {
+        cwd: repo,
+        shell: true,
+        encoding: "utf8",
+        timeout: 120000,
+        maxBuffer: 10 * 1024 * 1024
+      });
+      const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+      if (output) allOutput.push(output);
+      if (result.status !== 0) {
+        const combined = allOutput.join("\n");
+        return {
+          passed: false,
+          output: combined || `(exit ${result.status})`,
+          summary: `exit ${result.status === null ? "unknown" : result.status}`
+        };
+      }
+    }
+    const combined = allOutput.join("\n");
+    return {
+      passed: true,
+      output: combined || "passed",
+      summary: "passed"
+    };
+  }
   const result = spawnSync(command, {
     cwd: repo,
     shell: true,
@@ -386,15 +416,17 @@ function ensureMergeRequest(repo, options) {
     "--title", title,
     "--body-file", bodyFile,
     "--head", options.branchName,
-    "--base", options.targetBranch,
-    "--json", "number,url"
+    "--base", options.targetBranch
   ]);
   fs.rmSync(bodyFile, { force: true });
 
   if (!created.ok) return { ok: false, url: "", number: "", evidence: [], error: created.stderr || created.stdout || created.error };
-  const parsed = parseJson(created.stdout);
-  if (!parsed || !parsed.url) return { ok: false, url: "", number: "", evidence: [], error: "gh pr create did not return a URL" };
-  return { ok: true, url: parsed.url, number: parsed.number, evidence: [`created MR #${parsed.number}`] };
+  const urlMatch = (created.stdout || "").match(/https:\/\/github\.com\/[^\s]+/);
+  const url = urlMatch ? urlMatch[0] : "";
+  const numberMatch = url.match(/\/pull\/(\d+)/);
+  const number = numberMatch ? numberMatch[1] : "";
+  if (!url) return { ok: false, url: "", number: "", evidence: [], error: "gh pr create did not return a URL" };
+  return { ok: true, url, number, evidence: [`created MR #${number}`] };
 }
 
 function writePrBody(repo, options) {

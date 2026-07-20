@@ -123,13 +123,13 @@ if (nextStatus === "active") {
     }
   }
   const unfinished = tasks.filter(
-    (t) => t.id !== taskId && ["active", "implemented", "testing", "failed", "blocked"].includes(t.status)
+    (t) => t.id !== taskId && t.lifecycle_enforced === true && ["active", "implemented", "testing", "failed", "blocked"].includes(t.status)
   );
   if (unfinished.length > 0) {
     errors.push(`Delivery WIP=1 violation: finish ${unfinished[0].id} through verified PR review, merge, and Linear sync before starting ${taskId} (current status: ${unfinished[0].status}).`);
   }
   const unsyncedVerified = tasks.filter(
-    (t) => t.id !== taskId && t.status === "verified" && t.linear_id && (!t.linear_sync || t.linear_sync.status !== "synced")
+    (t) => t.id !== taskId && t.lifecycle_enforced === true && t.status === "verified" && t.linear_id && (!t.linear_sync || t.linear_sync.status !== "synced")
   );
   if (unsyncedVerified.length > 0) {
     errors.push(`Linear sync gate: ${unsyncedVerified[0].id} is verified locally but not confirmed synced to Linear. Repair its sync before starting ${taskId}.`);
@@ -270,6 +270,7 @@ try {
 
 const now = new Date().toISOString();
 task.status = nextStatus;
+task.lifecycle_enforced = true;
 task.loop = task.loop || { status: "not_started", attempt: 0, max_attempts: 3, last_failure: "", history: [] };
 
 if (nextStatus === "failed") {

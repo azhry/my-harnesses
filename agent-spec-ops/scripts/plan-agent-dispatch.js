@@ -9,6 +9,8 @@ const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 const args = process.argv.slice(2);
 const file = args.find((arg) => !arg.startsWith("--"));
 const enableAuto = args.includes("--enable-auto");
+const taskArgIndex = args.indexOf("--task");
+const requestedTaskId = taskArgIndex >= 0 ? String(args[taskArgIndex + 1] || "").trim() : "";
 
 if (!file) {
   console.error("Usage: node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json [--enable-auto]");
@@ -41,7 +43,7 @@ function activeLeaseTaskIds() {
     : [];
   return new Set(
     leases
-      .filter((lease) => ["requested", "leased"].includes(lease.status))
+      .filter((lease) => ["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease))
       .map((lease) => lease.task_id)
   );
 }
@@ -57,7 +59,7 @@ function activeRoles() {
     ? state.agent_dispatch.leases
     : [];
   for (const lease of leases) {
-    if (["requested", "leased"].includes(lease.status)) {
+    if (["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease)) {
       roles.add(lease.role);
     }
   }
@@ -101,6 +103,12 @@ function dispatchRoleFor(task) {
   if (task.status === "implemented" && task.role === "backend_dev") return "backend_test";
   if (["planned", "failed"].includes(task.status)) return task.role;
   return "";
+}
+
+function leaseIsCurrent(lease) {
+  if (!lease || !lease.expires_at) return true;
+  const expiresAt = Date.parse(lease.expires_at);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 function promptForTask(task, dispatchRole) {
@@ -153,11 +161,12 @@ function promptForTask(task, dispatchRole) {
 
 function runnableTasks() {
   const lifecycleTask = tasks.find((task) =>
-    ["active", "implemented", "testing", "failed", "blocked"].includes(task.status)
+    task.lifecycle_enforced === true && ["active", "implemented", "testing", "failed", "blocked"].includes(task.status)
   );
   const activeLeases = activeLeaseTaskIds();
   const blockedRoles = activeRoles();
   return tasks.filter((task) => {
+    if (requestedTaskId && task.id !== requestedTaskId) return false;
     const dispatchRole = dispatchRoleFor(task);
     if (!["frontend_dev", "frontend_test", "backend_dev", "backend_test"].includes(dispatchRole)) {
       return false;
@@ -303,6 +312,7 @@ writeWorkflowState(statePath, state, { writer: "plan-agent-dispatch.js" });
 
 const planned = (state.agent_dispatch.spawn_requests || []).filter((request) => request.status === "planned");
 console.log(`Agent dispatch status: ${state.agent_dispatch.status}`);
+if (requestedTaskId) console.log(`Requested task: ${requestedTaskId}`);
 console.log(`Planned spawn requests: ${planned.length}`);
 for (const request of planned) {
   console.log(`- ${request.id}: ${request.agent_name || expectedAgentName(request.role)} ${request.task_ids.join(", ")} scope=${request.write_scope.join(", ")}`);

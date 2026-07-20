@@ -42,10 +42,11 @@ if (atOrAfter("knowledge_discovery")) validateReadiness(state, errors);
 if (state.current_state === "product_review") validateProductReviewReady(state, errors);
 if (atOrAfter("design_assembly")) validateGate(state, "product_review", errors);
 if (state.current_state === "system_rules_review") validateSystemRulesReady(state, errors);
-if (atOrAfter("task_breakdown")) validateGate(state, "system_rules_review", errors);
-if (atOrAfter("implementation_in_progress")) validateTaskBreakdown(state, errors);
+if (atOrAfter("system_rules_review")) validateGate(state, "system_rules_review", errors);
+if (atOrAfter("task_breakdown")) validateTaskBreakdown(state, errors);
 if (state.current_state === "implementation_review") validateImplementationReview(state, errors);
 if (state.current_state === "done") validateGate(state, "implementation_review", errors);
+validateLinearDrift(state, errors);
 
 if (errors.length) {
   console.error("State validation failed:");
@@ -111,7 +112,7 @@ function validateTask(task, result, requireReview) {
 }
 
 function validateDeliveryWip(allTasks, result) {
-  const inFlight = allTasks.filter((task) => ["active", "implemented", "testing", "failed", "blocked"].includes(task.status));
+  const inFlight = allTasks.filter((task) => task.lifecycle_enforced === true && ["active", "implemented", "testing", "failed", "blocked"].includes(task.status));
   if (inFlight.length > 1) {
     result.push(`delivery WIP=1 requires exactly one unfinished task lifecycle at a time; found ${inFlight.map((task) => `${task.id}:${task.status}`).join(", ")}`);
   }
@@ -240,6 +241,20 @@ function requireArtifact(candidate, key, result) {
   }
   if (!artifact.path && !artifact.url) {
     result.push(`artifacts.${key}.path or url is required`);
+  }
+}
+
+function validateLinearDrift(candidate, result) {
+  const tasks = candidate.task_graph && Array.isArray(candidate.task_graph.tasks) ? candidate.task_graph.tasks : [];
+  for (const task of tasks) {
+    if (!task.linear_id || !task.linear_sync) continue;
+    const sync = task.linear_sync;
+    if (sync.status === "failed" && sync.error) {
+      result.push(`${task.id}: Linear sync failed — ${sync.error}. Repair with sync-linear-task.js --task ${task.id}`);
+    }
+    if (task.status === "verified" && sync.status !== "synced") {
+      result.push(`${task.id}: Task is verified locally but Linear sync status is ${sync.status || "missing"}. Run sync-linear-task.js --task ${task.id}`);
+    }
   }
 }
 

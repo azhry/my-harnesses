@@ -104,6 +104,47 @@ Hard gates:
 - `submit-task.js` refuses unrelated dirty files.
 - `seal-state.js` is trusted manual repair only. It refuses invalid workflow data and must not be used as normal recovery.
 
+## Test Execution Enforcement
+
+**Never claim tests pass without showing command output.** Never claim E2E works
+without running the test suite. "Created test file" ≠ "tests pass."
+
+Before recording test results with `record-test-results.js`:
+
+1. Actually run the test command and capture its output.
+2. Verify the output contains explicit pass/fail counts (e.g. "32 tests passed",
+   "0 failing") or a zero exit code.
+3. For E2E tests (Cypress/Playwright): verify the dev server and any required
+   backend are reachable before running. Use `node scripts/check-e2e-preflight.js`
+   or manually check `curl localhost:<port>/api/health`.
+4. Pass the actual command output to `record-test-results.js --output "<output>"`.
+5. If tests fail, transition to `failed` and return to dev. Do not rerun full
+   suites; capture the first failure evidence and stop.
+
+## Subagent Output Validation
+
+After a subagent returns "completed", the parent must verify before accepting:
+
+1. Run `git diff --stat` to confirm files actually changed.
+2. If the subagent claimed tests pass, require the actual test command output.
+3. If no files changed and no evidence was recorded, treat the subagent as failed
+   and re-dispatch with clearer instructions.
+4. Never accept "completed" with empty output or no harness evidence.
+
+## E2E Testing Workflow
+
+For tasks requiring Cypress/Playwright E2E tests against a running app:
+
+1. Start the dev server in the background: `npm run dev &`
+2. Wait for it to be ready (health check or port open).
+3. If backend is required, start it and verify health endpoint.
+4. Run E2E tests with `run-task-command.js` (bounded timeout).
+5. Record results with `record-test-results.js`.
+6. Stop background servers after tests complete.
+
+Do not claim E2E tests pass without completing this sequence. If any prerequisite
+is unavailable, record a blocker and stop instead of fabricating results.
+
 ## Commands
 
 ```bash
@@ -113,8 +154,9 @@ node scripts/transition-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID>
 node scripts/plan-agent-dispatch.js runs/<DELIVERY_ID>/workflow-state.json --enable-auto
 node scripts/record-agent-spawn.js runs/<DELIVERY_ID>/workflow-state.json <REQUEST_ID> <REAL_OPENCODE_SESSION_ID> --agent <AGENT_NAME>
 node scripts/check-write-scope.js runs/<DELIVERY_ID>/workflow-state.json <TARGET_PATH> <ROLE>
+node scripts/check-e2e-preflight.js runs/<DELIVERY_ID>/workflow-state.json [--frontend-port 3000] [--backend-port 8080] [--skip-backend]
 node scripts/sync-linear-task.js runs/<DELIVERY_ID>/workflow-state.json --audit
-node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --mr-comment-url "<URL>"
+node scripts/record-test-results.js runs/<DELIVERY_ID>/workflow-state.json --task <TASK_ID> --status passed --role <TEST_ROLE> --command "<COMMAND>" --output "..." --require-output --mr-comment-url "<URL>"
 node scripts/record-pr-review.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --status passed --role <TEST_ROLE> --summary "review summary" --evidence "review evidence"
 node scripts/run-task-command.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --role <ROLE> --label "task-scoped check" --timeout-ms 120000 -- <executable> [args...]
 node scripts/submit-task.js runs/<DELIVERY_ID>/workflow-state.json <TASK_ID> --commit-msg "feat: <TASK_ID>: summary" --test-command "<OPTIONAL_RECHECK_COMMAND>"

@@ -23,6 +23,7 @@ if (!args.stateFile || !args.taskId) {
     "  --command CMD             Test command that was run (repeatable)",
     "  --evidence TEXT           Evidence of test execution (repeatable)",
     "  --output TEXT             Test output or path to log file",
+    "  --require-output         Require --output with actual test output (prevents fabricated results)",
     "  --failure TEXT            Failure description (repeatable)",
     "  --case NAME               Test case name (repeatable)",
     "  --role ROLE               Test role recording the result",
@@ -80,6 +81,14 @@ if (!hasValidLease(state, args.taskId, expectedRole)) {
 }
 if (args.mrCommentUrl && !isMergeRequestCommentUrl(args.mrUrl || task.git_flow && task.git_flow.merge_request_url, args.mrCommentUrl)) {
   console.error(`${args.taskId}: --mr-comment-url must point to a real MR comment, not the MR itself.`);
+  process.exit(1);
+}
+if (args.requireOutput && !args.output) {
+  console.error(`${args.taskId}: --require-output is set but no --output provided. Pass actual test command output to prevent fabricated results.`);
+  process.exit(1);
+}
+if (args.requireOutput && args.output && args.output.length < 20) {
+  console.error(`${args.taskId}: --require-output is set but --output is suspiciously short (${args.output.length} chars). Pass the full test command output.`);
   process.exit(1);
 }
 
@@ -191,6 +200,7 @@ function parseArgs(rawArgs) {
     commands: [],
     evidence: [],
     output: "",
+    requireOutput: false,
     failures: [],
     cases: [],
     role: "",
@@ -231,6 +241,10 @@ function parseArgs(rawArgs) {
     }
     if (arg === "--output") {
       parsed.output = rawArgs[++index];
+      continue;
+    }
+    if (arg === "--require-output") {
+      parsed.requireOutput = true;
       continue;
     }
     if (arg === "--failure") {

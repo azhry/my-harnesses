@@ -146,6 +146,7 @@ function normalizeTask(task) {
     lane: stringValue(task.lane),
     depends_on: arrayValue(task.depends_on),
     status: task.status ? stringValue(task.status) : "planned",
+    lifecycle_enforced: true,
     source_requirements: arrayValue(task.source_requirements),
     knowledge_refs: arrayValue(task.knowledge_refs),
     description: stringValue(task.description),

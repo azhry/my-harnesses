@@ -243,6 +243,16 @@ for (const task of targetTasks) {
 }
 
   if (synced > 0 && errors === 0 && !args.dryRun) {
+    if (args.taskId && targetTasks.length === 1) {
+      const syncedTask = targetTasks[0];
+      syncedTask.linear_sync = {
+        ...(syncedTask.linear_sync || {}),
+        status: "synced",
+        synced_at: new Date().toISOString(),
+        error: "",
+        evidence: `sync-linear-task.js confirmed ${syncedTask.status}`
+      };
+    }
     state.linear_config = {
       ...safeLinearMetadata(),
       team_id: LINEAR_TEAM_ID || (state.linear_config && state.linear_config.team_id) || "",

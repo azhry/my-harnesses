@@ -33,6 +33,16 @@ for (const next of allowed) console.log(`- ${next}: ${checklist(current, next).j
 console.log("");
 console.log(roleRule(role));
 console.log("");
+console.log("GIT POLICY:");
+for (const line of gitPolicyLines(state)) {
+  console.log(line);
+}
+console.log("");
+console.log("RUN DIRECTIVES:");
+for (const line of runDirectiveLines(state)) {
+  console.log(line);
+}
+console.log("");
 console.log("ROLE GATES:");
 for (const line of roleGates(current, role)) {
   console.log(line);
@@ -50,8 +60,8 @@ function stateRule(stateName) {
     system_rules_review: "Stop for human system-rules review. If rejected, go back to design_assembly.",
     task_breakdown: "Write task-breakdown JSON, run record-task-breakdown.js, then sync Linear with --create. Do not mutate task_graph.tasks directly. Rework always returns here.",
     implementation_in_progress: "Spawn separate dev/test subagents. Frontend and backend may run in parallel.",
-    implementation_review: "Verify implementation against product requirements, then stop for human review.",
-    done: "Delivery complete.",
+    implementation_review: "Verify implementation against product requirements, then stop for human review. Do not mark the delivery/project done unless the human explicitly approved completion with record-completion-approval.js.",
+    done: "Delivery slice is closed, not project victory. If the human identifies remaining scope, route rework to task_breakdown.",
     blocked: "Stop until user intervention clears the blocker."
   };
   return rules[stateName] || "Unknown state. Validate state before acting.";
@@ -72,9 +82,10 @@ function checklist(from, to) {
     "task_breakdown->implementation_in_progress": ["tasks recorded with record-task-breakdown.js", "Linear tasks created", "each task has description/template/checklist/MR description", "dependencies checked", "dispatch planned"],
     "implementation_in_progress->implementation_review": ["all frontend/backend tasks verified", "MR comments recorded passed/failed", "task MRs merged", "implementation mapped to requirements"],
     "implementation_in_progress->task_breakdown": ["human rework or scope change recorded"],
-    "implementation_review->done": ["implementation_review gate approved by human"],
+    "implementation_review->done": ["implementation_review gate approved by human", "explicit completion approval recorded with record-completion-approval.js"],
     "implementation_review->implementation_in_progress": ["human requested implementation fixes"],
-    "implementation_review->task_breakdown": ["human requested rework or task/scope changes"]
+    "implementation_review->task_breakdown": ["human requested rework or task/scope changes"],
+    "done->task_breakdown": ["human requested remaining scope or rework"]
   };
   return checks[`${from}->${to}`] || ["blocker/reason recorded"];
 }
@@ -94,12 +105,18 @@ function roleRule(roleName) {
 
 function roleGates(stateName, roleName) {
   if (stateName !== "implementation_in_progress") {
+    if (stateName === "done") {
+      return [
+        "- DENIED: declare the whole project complete, mark the Linear project Completed, or celebrate victory unless the human explicitly says to close the project.",
+        "- ALLOWED: if the human identifies remaining scope, transition done -> task_breakdown and record new tasks."
+      ];
+    }
     return ["- Follow the transition checklist for this state.", "- Do not skip human review gates."];
   }
   if (roleName === "orchestrator") {
     return [
       "- ALLOWED: read state, plan-agent-dispatch, record-agent-spawn, inspect status, route rework.",
-      "- DENIED: edit project files, run dev/test directly, start dev servers or E2E suites, transition tasks without a recorded role lease, claim implementation complete.",
+      "- DENIED: edit project files, run dev/test directly, start dev servers or E2E suites, transition tasks without a recorded role lease, claim implementation complete, mark the Linear project Completed.",
       "- REQUIRED: spawn separate dev and test agents; record each returned agent id before task transitions."
     ];
   }
@@ -119,6 +136,50 @@ function roleGates(stateName, roleName) {
     ];
   }
   return ["- DENIED: implementation actions are reserved for orchestrator, dev, and test roles."];
+}
+
+function gitPolicyLines(candidate) {
+  const policy = candidate.implementation && candidate.implementation.git_policy || {};
+  const lines = [
+    `- independent PR review required: ${policy.review_required_before_merge === true ? "yes" : "no"}`,
+    `- same GitHub account review allowed: ${policy.allow_same_github_account_review === true ? "yes" : "no"}`,
+    `- admin merge allowed: ${policy.allow_admin_merge === true ? "yes" : "no"}`,
+    `- protected checks required before merge: ${policy.auto_merge_requires_checks === true ? "yes" : "no"}`
+  ];
+  if (policy.review_required_before_merge === false && policy.allow_admin_merge === true && policy.auto_merge_requires_checks === false) {
+    lines.push("- REQUIRED: do not ask for independent reviewer/protected-merge approval; submit-task.js may use same-account/admin flow according to this run policy.");
+  }
+  return lines;
+}
+
+function runDirectiveLines(candidate) {
+  const directives = candidate.run_directives || {};
+  const approval = directives.approval || {};
+  const execution = directives.execution || {};
+  const completion = directives.project_completion || {};
+  const credentials = directives.credentials || {};
+  const lines = [];
+  if (approval.do_not_reask_for_approved_workflow) {
+    lines.push("- REQUIRED: do not ask the user to approve already-approved workflow actions; use the recorded run policy and harness scripts.");
+  }
+  if (Array.isArray(approval.approved_actions) && approval.approved_actions.length) {
+    for (const action of approval.approved_actions) lines.push(`- APPROVED ACTION: ${action}`);
+  }
+  if (execution.continue_until_end_to_end) {
+    lines.push("- REQUIRED: continue the delivery toward end-to-end app completion; do not stop after one backend/frontend slice unless blocked.");
+  }
+  if (execution.do_not_stop_until_blocked) {
+    lines.push("- REQUIRED: if legal next work exists, continue or dispatch it; only stop for a real blocker, human gate, or exhausted loop limit.");
+  }
+  if (completion.never_complete_project_until_user_says_so) {
+    lines.push("- DENIED: do not declare victory, mark the Linear project Completed, or call the project done until the user explicitly says the project is complete.");
+  }
+  if (credentials.run_secrets_required) {
+    const expected = Array.isArray(credentials.expected_secret_keys) ? credentials.expected_secret_keys.join(", ") : "";
+    lines.push(`- REQUIRED: run-scoped secrets are expected (${expected || "unspecified"}); if missing, report the missing run secret file and use record-run-secrets.js rather than proceeding as if credentials do not exist.`);
+  }
+  if (!lines.length) lines.push("- none recorded");
+  return lines;
 }
 
 function inferRole(state) {

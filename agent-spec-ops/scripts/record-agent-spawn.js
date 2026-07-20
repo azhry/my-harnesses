@@ -46,6 +46,16 @@ request.agent_name = agentName;
 request.updated_at = now;
 
 state.agent_dispatch.leases = state.agent_dispatch.leases || [];
+for (const lease of state.agent_dispatch.leases) {
+  if (!lease || !request.task_ids.includes(lease.task_id) || lease.role !== request.role) {
+    continue;
+  }
+  if (["leased", "active", "requested"].includes(lease.status || "leased")) {
+    lease.status = "superseded";
+    lease.superseded_at = now;
+    lease.superseded_by = agentId;
+  }
+}
 for (const taskId of request.task_ids) {
   state.agent_dispatch.leases.push({
     task_id: taskId,

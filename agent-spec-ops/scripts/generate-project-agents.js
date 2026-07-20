@@ -115,6 +115,8 @@ function buildManagedBlock(includeTitle) {
   lines.push("- If this prompt was not launched through `/agent-spec-spawn` or `@agent-spec-orchestrator`, stop and ask the user to restart through the harness command/agent before planning, spawning, editing, submitting, or merging.");
   lines.push("- Do not treat a user prompt as direct coding work while this run is active.");
   lines.push("- If the user requests rework, stop implementation and route back to `task_breakdown`.");
+  lines.push("- Do not declare the whole project complete or set a Linear project to Completed just because task issues are done.");
+  lines.push("- `implementation_review` approves a delivery slice only; closing the run requires explicit human completion approval recorded with `record-completion-approval.js`.");
   lines.push("- Do not keep task, gate, credential, or design knowledge only in chat.");
   lines.push("- Do not edit `workflow-state.json` directly.");
   lines.push("- For task breakdown, write `runs/<DELIVERY_ID>/task-breakdown.json` and run `record-task-breakdown.js`; do not create temporary scripts or mutate `task_graph.tasks` directly.");

@@ -44,6 +44,10 @@ function activeLeaseTaskIds() {
   return new Set(
     leases
       .filter((lease) => ["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease))
+      .filter((lease) => {
+        const task = taskById.get(lease.task_id);
+        return !(task && task.status === "implemented" && lease.role === task.role);
+      })
       .map((lease) => lease.task_id)
   );
 }
@@ -60,6 +64,10 @@ function activeRoles() {
     : [];
   for (const lease of leases) {
     if (["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease)) {
+      const task = taskById.get(lease.task_id);
+      if (task && task.status === "implemented" && lease.role === task.role) {
+        continue;
+      }
       roles.add(lease.role);
     }
   }
@@ -123,6 +131,9 @@ function promptForTask(task, dispatchRole) {
       "Do not mark the task verified; the separate test agent owns test sign-off.",
       "Do not hand-write MR/check/merge evidence in workflow-state.json.",
       `After the separate test agent records passed tests, use submit-task.js for push, MR creation targeting ${gitPolicy.target_branch}, MR status comment, code-host check inspection, and merge.`,
+      gitPolicy.allow_admin_merge === true
+        ? "If GitHub blocks merge because same-account approval is impossible, submit-task.js is authorized to use gh pr merge --admin and record that evidence."
+        : "If GitHub blocks merge because of repository review rules, report the blocker; do not attempt admin merge.",
       gitFlow.auto_merge === false
         ? `submit-task.js must respect auto_merge=false. Reason: ${gitFlow.auto_merge_disabled_reason || "(missing)"}`
         : "Do not run raw gh pr merge; submit-task.js owns merge after checks pass.",
@@ -135,10 +146,14 @@ function promptForTask(task, dispatchRole) {
       "Use transition-task.js to move the task to testing if needed.",
       "Run the verification commands from the task plan.",
       "Record passed/failed evidence with record-test-results.js using your test role.",
-      "After submit-task.js creates the PR, inspect that exact PR and record passed/failed review evidence with record-pr-review.js for the submitted HEAD.",
+      gitPolicy.review_required_before_merge === true
+        ? "After submit-task.js creates the PR, inspect that exact PR and record passed/failed review evidence with record-pr-review.js for the submitted HEAD."
+        : "Independent PR review is not required by this run policy; do not block merge waiting for a separate GitHub approval.",
       "A failed PR review returns the same task to dev; do not dispatch or start a different task.",
       "Do not pass --merged, --merge-commit, or --merge-check-evidence to record-test-results.js for dev tasks.",
-      "Passed tests alone are not verified; submit-task.js creates the PR, independent review must pass, then submit-task.js may check and merge it.",
+      gitPolicy.review_required_before_merge === true
+        ? "Passed tests alone are not verified; submit-task.js creates the PR, independent review must pass, then submit-task.js may check and merge it."
+        : "Passed tests are enough for submit-task.js to create the PR and merge according to git_policy.",
       "On failure, transition the task to failed so the dev agent loop resumes."
     ]
     : [];
@@ -147,6 +162,7 @@ function promptForTask(task, dispatchRole) {
     `Use the agent-spec-ops harness role ${dispatchRole} for task ${task.id}: ${task.title}.`,
     "You are not alone in the codebase; do not revert changes made by other agents, and keep edits inside your write scope.",
     `Delivery ID: ${state.delivery.id || "(unset)"}.`,
+    ...runDirectivePromptLines(state),
     `Lane: ${task.lane}.`,
     `Description: ${task.description}`,
     ...devGitInstructions,
@@ -154,9 +170,36 @@ function promptForTask(task, dispatchRole) {
     `Allowed write scope: ${scope(task).join(", ")}`,
     `Definition of done: ${(task.definition_of_done || []).join("; ")}`,
     `Verification: ${(task.verification || []).join("; ")}`,
+    "Before editing or writing task files, run check-write-scope.js with your role and --agent-id set to this Codex/OpenCode session id; stop if it says the lease is superseded.",
     "Run build/test commands through run-task-command.js with a task label and a maximum 120000ms timeout. On timeout or failure, record evidence and hand the same task back; do not wait indefinitely or start another task.",
     "Update only your assigned task evidence/artifacts. The orchestrator owns top-level workflow transitions."
   ].join("\n");
+}
+
+function runDirectivePromptLines(candidate) {
+  const directives = candidate.run_directives || {};
+  const approval = directives.approval || {};
+  const execution = directives.execution || {};
+  const completion = directives.project_completion || {};
+  const credentials = directives.credentials || {};
+  const lines = [];
+  if (approval.do_not_reask_for_approved_workflow) {
+    lines.push("Run directive: do not ask the user to approve already-approved workflow actions; follow recorded run policy.");
+  }
+  if (Array.isArray(approval.approved_actions)) {
+    for (const action of approval.approved_actions) lines.push(`Run-approved action: ${action}`);
+  }
+  if (execution.continue_until_end_to_end || execution.do_not_stop_until_blocked) {
+    lines.push("Run directive: continue toward end-to-end app completion; do not stop after a single slice unless blocked by the harness.");
+  }
+  if (completion.never_complete_project_until_user_says_so) {
+    lines.push("Run directive: never declare the project complete or set the Linear project to Completed until the user explicitly says the project is complete.");
+  }
+  if (credentials.run_secrets_required) {
+    const expected = Array.isArray(credentials.expected_secret_keys) ? credentials.expected_secret_keys.join(", ") : "";
+    lines.push(`Run directive: run-scoped secrets are expected (${expected || "unspecified"}). If missing, report the missing run secret file and use record-run-secrets.js.`);
+  }
+  return lines;
 }
 
 function runnableTasks() {
@@ -213,6 +256,30 @@ function chooseParallelTasks(candidates, maxParallel) {
   return { chosen, blockers };
 }
 
+function refreshOpenSpawnRequestPrompts() {
+  const requests = Array.isArray(state.agent_dispatch.spawn_requests)
+    ? state.agent_dispatch.spawn_requests
+    : [];
+  for (const request of requests) {
+    if (!["planned", "spawned", "active"].includes(request.status)) {
+      continue;
+    }
+    const taskId = Array.isArray(request.task_ids) ? request.task_ids[0] : "";
+    const task = taskById.get(taskId);
+    if (!task) {
+      continue;
+    }
+    const dispatchRole = request.role || dispatchRoleFor(task);
+    if (!dispatchRole) {
+      continue;
+    }
+    request.prompt = promptForTask(task, dispatchRole);
+    request.agent_name = request.agent_name || expectedAgentName(dispatchRole);
+    request.write_scope = scope(task);
+    request.updated_at = now;
+  }
+}
+
 state.agent_dispatch = state.agent_dispatch || {
   mode: "single_agent",
   auto_spawn: false,
@@ -224,6 +291,7 @@ state.agent_dispatch = state.agent_dispatch || {
   leases: [],
   history: []
 };
+refreshOpenSpawnRequestPrompts();
 
 if (enableAuto) {
   state.agent_dispatch.mode = "multi_agent";

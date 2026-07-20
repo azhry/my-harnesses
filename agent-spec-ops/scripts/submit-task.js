@@ -6,6 +6,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { loadSecretEnv } = require("./lib/env-loader");
 const { hasValidLease, hasRecordedLease, expectedAgentName } = require("./lib/agent-identity");
+const { buildPrBody } = require("./lib/pr-body");
 const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
@@ -247,6 +248,9 @@ function validateRecordedPassedTest(task, runDir) {
 }
 
 function validateRecordedReview(task, headSha) {
+  if (policy.review_required_before_merge === false) {
+    return { ok: true, error: "" };
+  }
   const review = task.review || {};
   if (review.status !== "passed") {
     return { ok: false, error: "independent PR review is not passed; use record-pr-review.js from the matching test agent" };
@@ -401,11 +405,20 @@ function writeTestOutput(runDir, taskId, output) {
 }
 
 function ensureMergeRequest(repo, options) {
+  const existingAnyState = findExistingMergeRequest(repo, options.branchName);
+  if (existingAnyState.ok) return existingAnyState;
+
   const existing = run(repo, "gh", ["pr", "view", "--head", options.branchName, "--json", "number,url,state"]);
   if (existing.ok) {
     const parsed = parseJson(existing.stdout);
     if (parsed && parsed.url) {
       return { ok: true, url: parsed.url, number: parsed.number, evidence: [`found MR #${parsed.number}`] };
+    }
+  } else if (flagUnsupported(existing)) {
+    const legacyExisting = run(repo, "gh", ["pr", "view", options.branchName]);
+    const legacyUrl = extractUrl(legacyExisting.stdout || legacyExisting.stderr || "");
+    if (legacyExisting.ok && legacyUrl) {
+      return { ok: true, url: legacyUrl, number: prNumberFromUrl(legacyUrl), evidence: [`found MR ${legacyUrl}`] };
     }
   }
 
@@ -418,39 +431,78 @@ function ensureMergeRequest(repo, options) {
     "--head", options.branchName,
     "--base", options.targetBranch
   ]);
+  const legacyCreated = created.ok || !flagUnsupported(created)
+    ? null
+    : run(repo, "gh", [
+      "pr", "create",
+      "--title", title,
+      "--body-file", bodyFile,
+      "--head", options.branchName,
+      "--base", options.targetBranch
+    ]);
   fs.rmSync(bodyFile, { force: true });
 
-  if (!created.ok) return { ok: false, url: "", number: "", evidence: [], error: created.stderr || created.stdout || created.error };
-  const urlMatch = (created.stdout || "").match(/https:\/\/github\.com\/[^\s]+/);
-  const url = urlMatch ? urlMatch[0] : "";
-  const numberMatch = url.match(/\/pull\/(\d+)/);
-  const number = numberMatch ? numberMatch[1] : "";
-  if (!url) return { ok: false, url: "", number: "", evidence: [], error: "gh pr create did not return a URL" };
-  return { ok: true, url, number, evidence: [`created MR #${number}`] };
+  const result = legacyCreated || created;
+  if (!result.ok) {
+    const existingUrl = extractUrl(`${result.stderr || ""}\n${result.stdout || ""}`);
+    if (existingUrl && /already exists/i.test(`${result.stderr || ""}\n${result.stdout || ""}`)) {
+      return { ok: true, url: existingUrl, number: prNumberFromUrl(existingUrl), evidence: [`found existing MR ${existingUrl}`] };
+    }
+    return { ok: false, url: "", number: "", evidence: [], error: result.stderr || result.stdout || result.error };
+  }
+  if (legacyCreated) {
+    const url = extractUrl(result.stdout || result.stderr || "");
+    if (!url) return { ok: false, url: "", number: "", evidence: [], error: "gh pr create did not print a URL" };
+    return { ok: true, url, number: prNumberFromUrl(url), evidence: [`created MR ${url}`] };
+  }
+  const parsed = parseJson(result.stdout);
+  if (!parsed || !parsed.url) return { ok: false, url: "", number: "", evidence: [], error: "gh pr create did not return a URL" };
+  return { ok: true, url: parsed.url, number: parsed.number, evidence: [`created MR #${parsed.number}`] };
+}
+
+function findExistingMergeRequest(repo, branchName) {
+  const result = run(repo, "gh", ["pr", "list", "--state", "all", "--head", branchName, "--json", "number,url,state,headRefName,mergeCommit"]);
+  if (!result.ok) return { ok: false };
+  const parsed = parseJson(result.stdout);
+  if (!Array.isArray(parsed) || !parsed.length) return { ok: false };
+  const exact = parsed.find((item) => item.headRefName === branchName) || parsed[0];
+  const state = String(exact.state || "unknown").toLowerCase();
+  return {
+    ok: true,
+    url: exact.url,
+    number: exact.number,
+    evidence: [`found existing ${state} MR #${exact.number}`]
+  };
+}
+
+function flagUnsupported(result) {
+  const text = `${result && result.stderr || ""}\n${result && result.stdout || ""}`;
+  return /unknown flag:\s+--json/i.test(text);
+}
+
+function extractUrl(text) {
+  const match = String(text || "").match(/https:\/\/github\.com\/\S+\/pull\/\d+/);
+  return match ? match[0] : "";
+}
+
+function prNumberFromUrl(url) {
+  const match = String(url || "").match(/\/pull\/(\d+)/);
+  return match ? match[1] : "";
 }
 
 function writePrBody(repo, options) {
-  const templatePath = path.resolve(__dirname, "../templates/pull-request-template.md");
-  const fallback = `Task: ${options.taskId}\n\n${options.task.description || ""}\n`;
-  const body = fs.existsSync(templatePath)
-    ? fs.readFileSync(templatePath, "utf8")
-      .replace(/<TASK_ID>/g, options.taskId)
-      .replace(/<DELIVERY_ID>/g, options.deliveryId)
-    : fallback;
+  const body = buildPrBody(options);
   const file = path.join(repo, `.agent-spec-ops-${options.taskId}-mr.md`);
   fs.writeFileSync(file, body);
   return file;
 }
 
 function commentMergeRequest(repo, prRef, details) {
-  const body = [
-    `Harness test status: ${details.status}`,
-    "",
-    `Task: ${details.taskId}`,
-    `Command: ${details.command}`,
-    `Evidence: ${details.evidence}`,
-    `Summary: ${details.summary}`
-  ].join("\n");
+  const body = statusCommentBody(details);
+  const existing = findExistingStatusComment(repo, prRef, details.taskId, body);
+  if (existing.ok) {
+    return { ok: true, url: existing.url, evidence: [`reused existing MR status ${details.status}`, existing.url] };
+  }
   const result = run(repo, "gh", ["pr", "comment", String(prRef), "--body", body]);
   if (!result.ok) return { ok: false, url: "", evidence: [], error: result.stderr || result.stdout || result.error };
   const url = result.stdout.trim();
@@ -460,17 +512,61 @@ function commentMergeRequest(repo, prRef, details) {
   return { ok: true, url, evidence: [`commented MR status ${details.status}`, url] };
 }
 
+function statusCommentBody(details) {
+  return [
+    `Harness test status: ${details.status}`,
+    "",
+    `Task: ${details.taskId}`,
+    `Command: ${details.command}`,
+    `Evidence: ${details.evidence}`,
+    `Summary: ${details.summary}`
+  ].join("\n");
+}
+
+function findExistingStatusComment(repo, prRef, taskId, exactBody) {
+  const result = run(repo, "gh", ["pr", "view", String(prRef), "--json", "comments"]);
+  if (!result.ok) return { ok: false };
+  const parsed = parseJson(result.stdout);
+  const comments = parsed && Array.isArray(parsed.comments) ? parsed.comments : [];
+  const exact = comments.find((comment) => String(comment.body || "").trim() === exactBody.trim());
+  if (exact && exact.url) return { ok: true, url: exact.url };
+  void taskId;
+  return { ok: false };
+}
+
 function isMergeRequestCommentUrl(commentUrl) {
   const normalizedComment = String(commentUrl || "").replace(/\/$/, "");
   return /#(note|discussion_r)_?\d+/i.test(normalizedComment) || /#issuecomment-\d+/i.test(normalizedComment);
 }
 
 function mergeMergeRequest(repo, prRef, policy) {
-  const existing = inspectMergeRequest(repo, prRef);
+  const existing = inspectMergeRequest(repo, prRef, policy);
   if (existing.ok && existing.merged) return existing;
   if (!existing.checksPassed) {
     const automatic = run(repo, "gh", ["pr", "merge", String(prRef), "--squash", "--auto", "--delete-branch"], { timeout: 60000 });
     if (!automatic.ok) {
+      const admin = maybeAdminMerge(repo, prRef, [automatic]);
+      if (admin.ok) {
+        const updated = inspectMergeRequest(repo, prRef, policy);
+        return {
+          ...updated,
+          attempted: true,
+          evidence: [...new Set([...admin.evidence, ...(updated.evidence || [])])],
+          checksPassed: updated.checksPassed || existing.checksPassed || false,
+          checkEvidence: updated.checkEvidence || existing.checkEvidence || []
+        };
+      }
+      if (admin.error) {
+        return {
+          ok: false,
+          attempted: true,
+          commit: "",
+          evidence: admin.evidence || [],
+          checkEvidence: existing.checkEvidence || [],
+          checksPassed: false,
+          error: admin.error
+        };
+      }
       return {
         ok: false,
         attempted: true,
@@ -511,6 +607,20 @@ function mergeMergeRequest(repo, prRef, policy) {
   } else if (policy.auto_merge_requires_checks !== false) {
     const automatic = run(repo, "gh", ["pr", "merge", String(prRef), "--squash", "--auto", "--delete-branch"], { timeout: 60000 });
     if (!automatic.ok) {
+      const admin = maybeAdminMerge(repo, prRef, [immediate, automatic]);
+      if (admin.ok) {
+        mergeEvidence.push(...admin.evidence);
+      } else if (admin.error) {
+        return {
+          ok: false,
+          attempted: true,
+          commit: "",
+          evidence: admin.evidence || [],
+          checkEvidence: [],
+          checksPassed: false,
+          error: admin.error
+        };
+      } else {
       return {
         ok: false,
         attempted: true,
@@ -520,9 +630,15 @@ function mergeMergeRequest(repo, prRef, policy) {
         checksPassed: false,
         error: automatic.stderr || automatic.stdout || automatic.error || immediate.stderr || immediate.stdout || immediate.error || "gh pr merge failed"
       };
+      }
+    } else {
+      mergeEvidence.push("gh pr merge --auto accepted");
     }
-    mergeEvidence.push("gh pr merge --auto accepted");
   } else {
+    const admin = maybeAdminMerge(repo, prRef, [immediate]);
+    if (admin.ok) {
+      mergeEvidence.push(...admin.evidence);
+    } else {
     return {
       ok: false,
       attempted: true,
@@ -532,9 +648,10 @@ function mergeMergeRequest(repo, prRef, policy) {
       checksPassed: false,
       error: immediate.stderr || immediate.stdout || immediate.error || "gh pr merge failed"
     };
+    }
   }
 
-  const updated = inspectMergeRequest(repo, prRef);
+  const updated = inspectMergeRequest(repo, prRef, policy);
   if (updated.ok && updated.merged) {
     return {
       ...updated,
@@ -555,7 +672,36 @@ function mergeMergeRequest(repo, prRef, policy) {
   };
 }
 
-function inspectMergeRequest(repo, prRef) {
+function maybeAdminMerge(repo, prRef, failures) {
+  const failureText = failures.map((item) => `${item.stderr || ""}\n${item.stdout || ""}\n${item.error || ""}`).join("\n");
+  if (!adminMergeAllowed(policy, failureText)) return { ok: false, evidence: [] };
+  const admin = run(repo, "gh", ["pr", "merge", String(prRef), "--squash", "--admin", "--delete-branch"], { timeout: 60000 });
+  if (!admin.ok) {
+    return {
+      ok: false,
+      evidence: ["gh pr merge --admin attempted after explicit user approval for same-account GitHub workflow"],
+      error: admin.stderr || admin.stdout || admin.error || "gh pr merge --admin failed"
+    };
+  }
+  return {
+    ok: true,
+    evidence: [
+      "gh pr merge --admin accepted",
+      "admin merge used after explicit user approval for same-account GitHub workflow"
+    ]
+  };
+}
+
+function sameAccountMergeAllowed(text) {
+  return /review required|REVIEW_REQUIRED|Can not approve your own pull request|cannot approve your own pull request|Auto merge is not allowed|auto-merge is not allowed/i.test(String(text || ""));
+}
+
+function adminMergeAllowed(gitPolicy, text) {
+  if (gitPolicy.allow_admin_merge !== true) return false;
+  return sameAccountMergeAllowed(text) || gitPolicy.allow_same_github_account_review === true;
+}
+
+function inspectMergeRequest(repo, prRef, policy = {}) {
   const result = run(repo, "gh", ["pr", "view", String(prRef), "--json", "number,url,state,mergeCommit,statusCheckRollup"]);
   if (!result.ok) {
     return { ok: false, merged: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: result.stderr || result.stdout || result.error };
@@ -565,8 +711,11 @@ function inspectMergeRequest(repo, prRef) {
     return { ok: false, merged: false, commit: "", evidence: [], checkEvidence: [], checksPassed: false, error: "gh pr view did not return JSON" };
   }
   const state = String(parsed.state || "").toUpperCase();
-  const checkEvidence = checkEvidenceFor(parsed.statusCheckRollup);
-  const passedChecks = checksPassed(parsed.statusCheckRollup);
+  const checksRequired = policy.auto_merge_requires_checks !== false;
+  const checkEvidence = checksRequired
+    ? checkEvidenceFor(parsed.statusCheckRollup)
+    : ["code-host checks not required by git policy"];
+  const passedChecks = checksRequired ? checksPassed(parsed.statusCheckRollup) : true;
   const commit = parsed.mergeCommit && (parsed.mergeCommit.oid || parsed.mergeCommit.abbreviatedOid)
     ? String(parsed.mergeCommit.oid || parsed.mergeCommit.abbreviatedOid)
     : "";

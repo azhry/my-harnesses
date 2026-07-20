@@ -66,6 +66,7 @@ function enforcePolicy(statePath, options = {}) {
 function enforceLinearTaskPolicy(state, nextState, options, errors) {
   const effectiveState = nextState || state.current_state || "";
   const cfg = getLinearConfig(state);
+  const connectorReady = Boolean(state.linear_config && state.linear_config.connector_ready);
   const tracker = state.tool_readiness && state.tool_readiness.choices
     ? state.tool_readiness.choices.product_tracker
     : "";
@@ -74,7 +75,7 @@ function enforceLinearTaskPolicy(state, nextState, options, errors) {
     errors.push(`Product tracker must be Linear; found "${tracker}".`);
   }
 
-  if (!cfg.api_key) {
+  if (!cfg.api_key && !connectorReady) {
     errors.push("LINEAR_API_KEY or LINEAR_ACCESS_TOKEN must be present in the environment. Raw keys must not be stored in workflow-state.json.");
   }
 

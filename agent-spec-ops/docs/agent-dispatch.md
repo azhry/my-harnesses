@@ -9,6 +9,11 @@ Each lease must be recorded with the exact OpenCode adapter name:
 `agent-spec-frontend-dev`, `agent-spec-frontend-test`,
 `agent-spec-backend-dev`, or `agent-spec-backend-test`.
 
+Recording a new lease for the same task and role supersedes older active leases.
+Workers must run `check-write-scope.js` with `--agent-id` or
+`AGENT_SPEC_OPS_AGENT_ID` before writing task files so stopped or superseded
+sessions are denied before they can mutate the project.
+
 ```text
 frontend_dev -> frontend_test(record-test-results) -> submit-task(push/PR) -> frontend_test(record-pr-review) -> submit-task(checks/merge)
 backend_dev  -> backend_test(record-test-results)  -> submit-task(push/PR) -> backend_test(record-pr-review) -> submit-task(checks/merge)

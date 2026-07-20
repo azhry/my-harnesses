@@ -10,6 +10,7 @@ and feedback.
 |---------|---------|
 | agent-kube-ops | Deploy apps from a remote git repo to EKS — 4-gate pipeline: tools → permissions → deploy → healthcheck |
 | agent-spec-ops | Spec-to-delivery lifecycle with 7 roles, 24 states, 3 human gates, and knowledge memory |
+| dev-circuit | End-to-end request-to-delivery harness with Linear planning, isolated task branches, independent review, evidence gates, and a durable supervisor |
 
 ## Usage
 

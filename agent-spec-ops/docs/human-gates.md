@@ -11,6 +11,11 @@ The compact harness has three human gates.
 If the user requests rework instead of a direct implementation fix, route to
 `task_breakdown`.
 
+Approval of `implementation_review` means the current delivery slice was
+reviewed. It does not authorize declaring the whole project complete or setting
+a Linear project to Completed. Closing the delivery requires a separate explicit
+completion approval recorded with `record-completion-approval.js`.
+
 Gate approval must record:
 
 - status

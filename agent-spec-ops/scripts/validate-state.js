@@ -29,8 +29,9 @@ if (!states.includes(state.current_state)) {
 }
 
 const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
-const requireIndependentReview = Boolean(state.implementation && state.implementation.git_policy && state.implementation.git_policy.review_required_before_merge === true);
-for (const task of tasks) validateTask(task, errors, requireIndependentReview);
+const gitPolicy = state.implementation && state.implementation.git_policy || {};
+const requireIndependentReview = Boolean(gitPolicy.review_required_before_merge === true);
+for (const task of tasks) validateTask(task, errors, requireIndependentReview, gitPolicy);
 validateAgentDispatch(state, errors);
 validateUniqueMergeRequests(tasks, errors);
 if (state.agent_dispatch && state.agent_dispatch.parallel_allowed === false) validateDeliveryWip(tasks, errors);
@@ -45,7 +46,10 @@ if (state.current_state === "system_rules_review") validateSystemRulesReady(stat
 if (atOrAfter("system_rules_review")) validateGate(state, "system_rules_review", errors);
 if (atOrAfter("task_breakdown")) validateTaskBreakdown(state, errors);
 if (state.current_state === "implementation_review") validateImplementationReview(state, errors);
-if (state.current_state === "done") validateGate(state, "implementation_review", errors);
+if (state.current_state === "done") {
+  validateGate(state, "implementation_review", errors);
+  validateCompletionApproval(state, errors);
+}
 validateLinearDrift(state, errors);
 
 if (errors.length) {
@@ -97,7 +101,7 @@ function validateImplementationReview(candidate, result) {
   requireArtifact(candidate, "product_requirements", result);
 }
 
-function validateTask(task, result, requireReview) {
+function validateTask(task, result, requireReview, policy) {
   for (const key of ["id", "title", "role", "lane", "status", "description"]) {
     if (!task[key]) result.push(`task missing ${key}`);
   }
@@ -108,7 +112,7 @@ function validateTask(task, result, requireReview) {
   if (!["frontend", "backend", "planning", "product", "handoff", "integration"].includes(task.lane)) result.push(`${task.id}: lane is invalid`);
   if (!["planned", "active", "implemented", "testing", "failed", "verified", "blocked", "waived", "not_applicable"].includes(task.status)) result.push(`${task.id}: status is invalid`);
   if (task.status === "implemented" && isDevTask(task)) validateImplementedTask(task, result);
-  if (task.status === "verified") validateVerifiedTask(task, result, requireReview);
+  if (task.status === "verified") validateVerifiedTask(task, result, requireReview, policy);
 }
 
 function validateDeliveryWip(allTasks, result) {
@@ -128,7 +132,7 @@ function validateImplementedTask(task, result) {
   }
 }
 
-function validateVerifiedTask(task, result, requireReview) {
+function validateVerifiedTask(task, result, requireReview, policy) {
   const implementation = task.implementation || {};
   const test = task.test || {};
   if (isDevTask(task)) {
@@ -145,10 +149,10 @@ function validateVerifiedTask(task, result, requireReview) {
   if (Array.isArray(test.failures) && test.failures.length) {
     result.push(`${task.id}: verified cannot have recorded test failures`);
   }
-  if (isDevTask(task)) validateVerifiedDevGit(task, result, requireReview);
+  if (isDevTask(task)) validateVerifiedDevGit(task, result, requireReview, policy);
 }
 
-function validateVerifiedDevGit(task, result, requireReview) {
+function validateVerifiedDevGit(task, result, requireReview, policy) {
   const git = task.git_flow || {};
   if (!git.branch_created || !git.feature_branch) {
     result.push(`${task.id}: verified requires feature branch evidence`);
@@ -168,7 +172,8 @@ function validateVerifiedDevGit(task, result, requireReview) {
   if (git.merge_request_comment_url && !isMergeRequestCommentUrl(git.merge_request_url, git.merge_request_comment_url)) {
     result.push(`${task.id}: merge_request_comment_url must be a real MR comment URL, not the MR URL itself`);
   }
-  if (git.merge_checks_passed !== true || !Array.isArray(git.merge_check_evidence) || !git.merge_check_evidence.length) {
+  const checksRequired = policy.auto_merge_requires_checks !== false;
+  if (checksRequired && (git.merge_checks_passed !== true || !Array.isArray(git.merge_check_evidence) || !git.merge_check_evidence.length)) {
     result.push(`${task.id}: verified requires passed MR checks evidence`);
   }
   if (git.merged !== true || !git.merge_commit || !Array.isArray(git.merge_evidence) || !git.merge_evidence.length) {
@@ -263,4 +268,17 @@ function validateGate(candidate, key, result) {
   if (!gate || gate.status !== "approved") result.push(`gates.${key}.status must be approved`);
   if (!gate || !gate.approver) result.push(`gates.${key}.approver is required`);
   if (!gate || !gate.decided_at) result.push(`gates.${key}.decided_at is required`);
+}
+
+function validateCompletionApproval(candidate, result) {
+  const delivery = candidate.delivery || {};
+  if (delivery.completion_approved !== true) {
+    result.push("done requires delivery.completion_approved=true");
+  }
+  if (!delivery.completion_approved_by) {
+    result.push("done requires delivery.completion_approved_by");
+  }
+  if (!delivery.completion_approved_at) {
+    result.push("done requires delivery.completion_approved_at");
+  }
 }

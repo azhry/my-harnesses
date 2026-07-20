@@ -7,7 +7,7 @@ const readline = require("readline");
 const { spawnSync, execSync } = require("child_process");
 const { ensureRunMemory } = require("./lib/memory-store");
 const { safeLinearMetadata } = require("./lib/policy");
-const { loadSecretEnv } = require("./lib/env-loader");
+const { loadSecretEnv, writeRunSecretEnv } = require("./lib/env-loader");
 const { loadWorkflowState, writeWorkflowState } = require("./lib/state-store");
 
 const args = parseArgs(process.argv.slice(2));
@@ -17,6 +17,10 @@ const nonInteractive = args.nonInteractive;
 const verifyMode = args.verify;
 const productTrackerArg = args.productTracker;
 const codeHostArg = args.codeHost;
+const linearConnectorProject = args.linearConnectorProject;
+const linearConnectorProjectId = args.linearConnectorProjectId;
+const linearConnectorTeam = args.linearConnectorTeam;
+const githubConnectorReady = args.githubConnectorReady;
 
 const PRODUCT_TRACKERS = ["linear", "atlassian"];
 const CODE_HOSTS = ["github", "gitlab"];
@@ -42,7 +46,11 @@ function parseArgs(rawArgs) {
     nonInteractive: false,
     verify: false,
     productTracker: "",
-    codeHost: ""
+    codeHost: "",
+    linearConnectorProject: "",
+    linearConnectorProjectId: "",
+    linearConnectorTeam: "",
+    githubConnectorReady: false
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -63,6 +71,25 @@ function parseArgs(rawArgs) {
     if (arg === "--code-host") {
       parsed.codeHost = rawArgs[index + 1] || "";
       index += 1;
+      continue;
+    }
+    if (arg === "--linear-connector-project") {
+      parsed.linearConnectorProject = rawArgs[index + 1] || "";
+      index += 1;
+      continue;
+    }
+    if (arg === "--linear-connector-project-id") {
+      parsed.linearConnectorProjectId = rawArgs[index + 1] || "";
+      index += 1;
+      continue;
+    }
+    if (arg === "--linear-connector-team") {
+      parsed.linearConnectorTeam = rawArgs[index + 1] || "";
+      index += 1;
+      continue;
+    }
+    if (arg === "--github-connector-ready") {
+      parsed.githubConnectorReady = true;
       continue;
     }
     if (!arg.startsWith("--") && !parsed.stateFile) {
@@ -212,9 +239,50 @@ async function capabilityFromProvider(name, provider, tokenEnvs, extraEnvs) {
   const presentExtraEnvs = envNamesPresent(extraEnvs);
   let sessionTokenSupplied = false;
 
+  if (name === "product_tracker" && provider === "linear" && linearConnectorProject) {
+    return {
+      name,
+      provider,
+      required: true,
+      status: "available",
+      verification: `Linear app connector ready for project ${linearConnectorProject}`,
+      evidence: [`Linear connector project: ${linearConnectorProject}`, `Linear connector team: ${linearConnectorTeam || "unknown"}`],
+      blocker: ""
+    };
+  }
+
+  if (name === "code_host" && provider === "github" && githubConnectorReady) {
+    return {
+      name,
+      provider,
+      required: true,
+      status: "available",
+      verification: "GitHub app connector ready",
+      evidence: ["GitHub connector is available in Codex"],
+      blocker: ""
+    };
+  }
+
   if (presentTokenEnvs.length === 0 && !nonInteractive && process.stdin.isTTY) {
     const token = await askSecret(`No ${provider} token env found. Enter ${provider} access token/PAT for this session (blank to skip): `);
     sessionTokenSupplied = token.length > 0;
+    if (sessionTokenSupplied && stateFile) {
+      writeRunSecretEnv(stateFile, { [tokenEnvs[0]]: token });
+      process.env[tokenEnvs[0]] = token;
+      presentTokenEnvs.push(tokenEnvs[0]);
+    }
+  }
+
+  if (sessionTokenSupplied) {
+    return {
+      name,
+      provider,
+      required: true,
+      status: "available_session",
+      verification: "Token supplied interactively and stored in the run secret env file",
+      evidence: [`${provider} token stored in runs/<DELIVERY_ID>/.agent-spec-ops.secrets.env`],
+      blocker: ""
+    };
   }
 
   if (presentTokenEnvs.length > 0) {
@@ -225,18 +293,6 @@ async function capabilityFromProvider(name, provider, tokenEnvs, extraEnvs) {
       status: "available",
       verification: `${presentTokenEnvs.join(", ")} present in environment`,
       evidence: [`${provider} token environment variable is present`],
-      blocker: ""
-    };
-  }
-
-  if (sessionTokenSupplied) {
-    return {
-      name,
-      provider,
-      required: true,
-      status: "available_session",
-      verification: "Token supplied interactively for this readiness check",
-      evidence: [`${provider} token supplied interactively; raw value not stored`],
       blocker: ""
     };
   }
@@ -348,6 +404,12 @@ function getTokenForProvider(tokenEnvs) {
 }
 
 function verifyLinearConnectivity() {
+  if (linearConnectorProject) {
+    return {
+      status: "connected",
+      detail: `Linear connector ready for project ${linearConnectorProject}`
+    };
+  }
   const tokenInfo = getTokenForProvider(["LINEAR_API_KEY", "LINEAR_ACCESS_TOKEN"]);
   if (!tokenInfo) {
     return { status: "missing", detail: "No Linear API key found in environment" };
@@ -365,6 +427,12 @@ function verifyLinearConnectivity() {
 }
 
 function verifyGithubConnectivity() {
+  if (githubConnectorReady) {
+    return {
+      status: "connected",
+      detail: "GitHub connector ready"
+    };
+  }
   const tokenInfo = getTokenForProvider(["GITHUB_TOKEN", "GH_TOKEN"]);
   if (!tokenInfo) {
     return { status: "missing", detail: "No GitHub token found in environment" };
@@ -466,8 +534,12 @@ function updateStateFile(file, readiness) {
   if (readiness.choices && readiness.choices.product_tracker === "linear") {
     state.linear_config = {
       ...safeLinearMetadata(),
-      team_id: process.env.LINEAR_TEAM_ID || (state.linear_config && state.linear_config.team_id) || "",
+      team_id: process.env.LINEAR_TEAM_ID || (state.linear_config && state.linear_config.team_id) || linearConnectorTeam || "",
       project_id: process.env.LINEAR_PROJECT_ID || (state.linear_config && state.linear_config.project_id) || "",
+      connector_ready: Boolean(linearConnectorProject) || Boolean(state.linear_config && state.linear_config.connector_ready),
+      connector_project: linearConnectorProject || (state.linear_config && state.linear_config.connector_project) || "",
+      connector_project_id: linearConnectorProjectId || (state.linear_config && state.linear_config.connector_project_id) || "",
+      connector_team: linearConnectorTeam || (state.linear_config && state.linear_config.connector_team) || "",
       last_verified_at: readiness.status === "ready" ? now : (state.linear_config && state.linear_config.last_verified_at) || ""
     };
   }

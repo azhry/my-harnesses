@@ -6,6 +6,7 @@ const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { execSync } = require("node:child_process");
 const { canTransition } = require("../scripts/lib/state-machine");
+const { buildPrBody, assertNoPrPlaceholders } = require("../scripts/lib/pr-body");
 const { writeWorkflowState } = require("../scripts/lib/state-store");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -235,7 +236,40 @@ describe("compact state machine", () => {
     assert.equal(canTransition("product_requirements", "design_assembly"), false);
     assert.equal(canTransition("implementation_review", "task_breakdown"), true);
     assert.equal(canTransition("implementation_review", "done"), true);
+    assert.equal(canTransition("done", "task_breakdown"), true);
     assert.equal(canTransition("implementation_review", "knowledge_discovery"), false);
+  });
+});
+
+describe("PR body generation", () => {
+  it("renders task evidence instead of leaking template placeholders", () => {
+    const task = devTask("BE-123", "backend_dev", "backend");
+    task.title = "Implement tenant quota API";
+    task.description = "Adds tenant, client, and quota assignment GraphQL behavior.";
+    task.source_requirements = ["REQ-tenant-quota"];
+    task.linear_id = "FLEX-123";
+    task.expected_changes = ["backend/internal/tenant/**"];
+    task.implementation.changed_files = [
+      "backend/internal/tenant/tenant.go",
+      "backend/internal/graph/handler.go"
+    ];
+    task.test.commands = ["go test ./internal/tenant ./internal/graph"];
+    task.test.output_file = "test-output/be-123.log";
+
+    const body = buildPrBody({ deliveryId: "FQ-BACKEND-001", taskId: "BE-123", task });
+
+    assert.match(body, /Implement tenant quota API/);
+    assert.match(body, /Adds tenant, client, and quota assignment GraphQL behavior/);
+    assert.match(body, /backend\/internal\/tenant\/tenant.go: updated for this task scope/);
+    assert.match(body, /go test \.\/internal\/tenant \.\/internal\/graph/);
+    assert.doesNotMatch(body, /<[^>\n]+>/);
+  });
+
+  it("rejects unresolved PR placeholders", () => {
+    assert.throws(
+      () => assertNoPrPlaceholders("## Summary\n\n<1-3 sentences describing what this PR does>\n"),
+      /PR body still contains placeholder text/
+    );
   });
 });
 
@@ -300,6 +334,64 @@ describe("transition.js", () => {
     const result = runScript("transition.js", [statePath(), "task_breakdown", "--role", "orchestrator"]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /Unexpected option/);
+  });
+
+  it("requires explicit human completion approval before done", () => {
+    const state = baseState();
+    state.current_state = "implementation_review";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "verified";
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("transition.js", [statePath(), "done", "close"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /completion_approved/);
+  });
+
+  it("allows done only after record-completion-approval captures explicit human closeout", () => {
+    const state = baseState();
+    state.current_state = "implementation_review";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "verified";
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const approved = runScript("record-completion-approval.js", [
+      statePath(),
+      "--approver",
+      "user",
+      "--note",
+      "The human says this delivery is complete and approved to close",
+      "--evidence",
+      "test approval"
+    ]);
+    assert.equal(approved.exitCode, 0);
+
+    const result = runScript("transition.js", [statePath(), "done", "close"]);
+    assert.equal(result.exitCode, 0);
+    const updated = loadState();
+    assert.equal(updated.current_state, "done");
+    assert.equal(updated.delivery.completion_approved, true);
+    assert.equal(updated.delivery.completion_approved_by, "user");
+  });
+
+  it("allows rework from done back to task breakdown", () => {
+    const state = baseState();
+    state.current_state = "done";
+    state.delivery.completion_approved = true;
+    state.delivery.completion_approved_by = "user";
+    state.delivery.completion_approved_at = new Date().toISOString();
+    state.delivery.completion_note = "The human says this delivery is complete";
+    state.delivery.completion_evidence = ["test"];
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "verified";
+    state.task_graph.tasks = [task];
+    writeState(state);
+
+    const result = runScript("transition.js", [statePath(), "task_breakdown", "remaining scope"]);
+    assert.equal(result.exitCode, 0);
+    assert.equal(loadState().current_state, "task_breakdown");
   });
 });
 
@@ -494,6 +586,7 @@ describe("transition-task.js", () => {
   it("rejects verified when MR checks are not recorded as passed", () => {
     const state = baseState();
     state.current_state = "implementation_in_progress";
+    state.implementation.git_policy.auto_merge_requires_checks = true;
     const task = devTask("FE-001", "frontend_dev", "frontend");
     task.status = "testing";
     task.git_flow.merge_checks_passed = false;
@@ -510,6 +603,7 @@ describe("transition-task.js", () => {
   it("rejects verified without independent review of the exact submitted HEAD", () => {
     const state = baseState();
     state.current_state = "implementation_in_progress";
+    state.implementation.git_policy.review_required_before_merge = true;
     const task = devTask("FE-001", "frontend_dev", "frontend");
     task.status = "testing";
     task.review = { status: "passed", head_sha: "stale-head", evidence: ["old review"] };
@@ -521,6 +615,27 @@ describe("transition-task.js", () => {
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /Independent PR review evidence/);
     assert.match(result.stderr, /exact submitted HEAD/);
+  });
+
+  it("allows verified without protected checks or independent PR review when git policy permits same-account admin flow", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.implementation.git_policy.review_required_before_merge = false;
+    state.implementation.git_policy.auto_merge_requires_checks = false;
+    state.implementation.git_policy.allow_same_github_account_review = true;
+    state.implementation.git_policy.allow_admin_merge = true;
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.review = { status: "not_started", evidence: [] };
+    task.git_flow.merge_checks_passed = false;
+    task.git_flow.merge_check_evidence = [];
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("transition-task.js", [statePath(), "FE-001", "verified", "same-account admin flow"]);
+    assert.equal(result.exitCode, 0);
+    assert.equal(loadState().task_graph.tasks[0].status, "verified");
   });
 
   it("increments loop pressure only when a task fails", () => {
@@ -632,6 +747,83 @@ describe("record-agent-spawn.js", () => {
     assert.equal(lease.agent_name, "agent-spec-frontend-dev");
     assert.equal(lease.agent_id, "ses_frontenddev");
   });
+
+  it("supersedes older active leases for the same task and role", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    state.agent_dispatch.spawn_requests = [{
+      id: "spawn-fe",
+      role: "frontend_dev",
+      agent_name: "agent-spec-frontend-dev",
+      lane: "frontend",
+      task_ids: ["FE-001"],
+      status: "planned",
+      agent_id: "",
+      prompt: "test",
+      write_scope: ["frontend/"],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      blockers: []
+    }];
+    state.agent_dispatch.leases = [{
+      task_id: "FE-001",
+      role: "frontend_dev",
+      agent_name: "agent-spec-frontend-dev",
+      agent_id: "ses_oldfrontenddev",
+      status: "leased",
+      started_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60000).toISOString()
+    }];
+    writeState(state);
+
+    const result = runScript("record-agent-spawn.js", [statePath(), "spawn-fe", "ses_newfrontenddev", "--agent", "agent-spec-frontend-dev"]);
+    assert.equal(result.exitCode, 0);
+    const leases = loadState().agent_dispatch.leases;
+    assert.equal(leases[0].status, "superseded");
+    assert.equal(leases[0].superseded_by, "ses_newfrontenddev");
+    assert.equal(leases[1].agent_id, "ses_newfrontenddev");
+    assert.equal(leases[1].status, "leased");
+  });
+});
+
+describe("record-run-secrets.js", () => {
+  after(() => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it("writes allowed run secrets to the private run env file without printing values", () => {
+    const state = baseState();
+    writeState(state);
+
+    const result = runScript("record-run-secrets.js", [
+      statePath(),
+      "--set", "LINEAR_API_KEY=lin_test_secret_1234567890",
+      "--set", "GITHUB_TOKEN=ghp_test_secret_1234567890"
+    ]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /LINEAR_API_KEY: present/);
+    assert.match(result.stdout, /GITHUB_TOKEN: present/);
+    assert.doesNotMatch(result.stdout, /lin_test_secret/);
+    assert.doesNotMatch(result.stdout, /ghp_test_secret/);
+
+    const secretFile = path.join(TMP, ".agent-spec-ops.secrets.env");
+    const contents = fs.readFileSync(secretFile, "utf8");
+    assert.match(contents, /LINEAR_API_KEY=lin_test_secret_1234567890/);
+    assert.match(contents, /GITHUB_TOKEN=ghp_test_secret_1234567890/);
+    assert.equal(fs.statSync(secretFile).mode & 0o777, 0o600);
+  });
+
+  it("rejects unsupported secret names", () => {
+    const state = baseState();
+    writeState(state);
+
+    const result = runScript("record-run-secrets.js", [
+      statePath(),
+      "--set", "NOT_ALLOWED=value"
+    ]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Unsupported secret key/);
+  });
 });
 
 describe("validate-state.js", () => {
@@ -678,6 +870,7 @@ describe("validate-state.js", () => {
   it("rejects verified dev tasks without passed MR check evidence", () => {
     const state = baseState();
     state.current_state = "implementation_in_progress";
+    state.implementation.git_policy.auto_merge_requires_checks = true;
     const task = devTask("FE-001", "frontend_dev", "frontend");
     task.status = "verified";
     task.git_flow.merge_checks_passed = false;
@@ -783,6 +976,32 @@ describe("check-write-scope.js", () => {
     assert.match(result.stdout, /active scope/);
   });
 
+  it("rejects a superseded worker session even when role and task scope match", () => {
+    const state = baseState();
+    state.workspace_root = ".test-tmp";
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "active";
+    task.scope.allowed_paths = ["frontend/**"];
+    state.task_graph.tasks = [task];
+    state.agent_dispatch.leases = [{
+      task_id: "FE-001",
+      role: "frontend_dev",
+      agent_name: "agent-spec-frontend-dev",
+      agent_id: "ses_oldfrontenddev",
+      status: "superseded",
+      started_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60000).toISOString()
+    }];
+    fs.mkdirSync(path.join(TMP, "project", "frontend"), { recursive: true });
+    writeState(state);
+
+    const target = path.join(TMP, "project", "frontend", "file.ts");
+    const result = runScript("check-write-scope.js", [statePath(), target, "frontend_dev", "--agent-id", "ses_oldfrontenddev"]);
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /does not hold an active frontend_dev lease/);
+  });
+
   it("allows the matching test role into a dev task scope while testing", () => {
     const state = baseState();
     state.workspace_root = ".test-tmp";
@@ -865,6 +1084,29 @@ describe("record-test-results.js", () => {
     ]);
     assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /dev-task MR check\/merge evidence must come from submit-task\.js/);
+  });
+
+  it("records test result events under the test role, not the dev task role", () => {
+    const state = baseState();
+    state.current_state = "implementation_in_progress";
+    const task = devTask("FE-001", "frontend_dev", "frontend");
+    task.status = "testing";
+    task.test = { status: "not_started", last_run_at: "", output_file: "", cases: [], commands: [], evidence: [], failures: [] };
+    state.task_graph.tasks = [task];
+    addLease(state, "FE-001", "frontend_test");
+    writeState(state);
+
+    const result = runScript("record-test-results.js", [
+      statePath(),
+      "--task", "FE-001",
+      "--status", "passed",
+      "--role", "frontend_test",
+      "--command", "npm test",
+      "--output", "ok"
+    ]);
+    assert.equal(result.exitCode, 0);
+    const events = fs.readFileSync(path.join(TMP, "events.ndjson"), "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    assert.equal(events.at(-1).role_context, "frontend_test");
   });
 });
 
@@ -989,7 +1231,7 @@ describe("plan-agent-dispatch.js", () => {
     assert.equal(request.role, "frontend_test");
     assert.equal(request.agent_name, "agent-spec-frontend-test");
     assert.match(request.prompt, /record-test-results/);
-    assert.match(request.prompt, /record-pr-review/);
+    assert.match(request.prompt, /Independent PR review is not required/);
   });
 
   it("plans only one task even when frontend and backend are both runnable", () => {

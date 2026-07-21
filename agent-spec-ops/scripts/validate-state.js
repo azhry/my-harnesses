@@ -35,6 +35,8 @@ for (const task of tasks) validateTask(task, errors, requireIndependentReview, g
 validateAgentDispatch(state, errors);
 validateUniqueMergeRequests(tasks, errors);
 if (state.agent_dispatch && state.agent_dispatch.parallel_allowed === false) validateDeliveryWip(tasks, errors);
+validateStaleTasks(state, errors);
+validateExpiredLeases(state, errors);
 
 const index = states.indexOf(state.current_state);
 const atOrAfter = (name) => index >= states.indexOf(name) && state.current_state !== "blocked";
@@ -280,5 +282,27 @@ function validateCompletionApproval(candidate, result) {
   }
   if (!delivery.completion_approved_at) {
     result.push("done requires delivery.completion_approved_at");
+  }
+}
+
+function validateStaleTasks(state, result) {
+  const tasks = state.task_graph && Array.isArray(state.task_graph.tasks) ? state.task_graph.tasks : [];
+  for (const task of tasks) {
+    if (task.status === "active" && task.role === "frontend_dev" && !hasValidLease(state, task.id, "frontend_dev")) {
+      result.push(`${task.id}: active frontend_dev task requires a valid frontend_dev lease`);
+    }
+    if (task.status === "active" && task.role === "backend_dev" && !hasValidLease(state, task.id, "backend_dev")) {
+      result.push(`${task.id}: active backend_dev task requires a valid backend_dev lease`);
+    }
+  }
+}
+
+function validateExpiredLeases(state, result) {
+  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases) ? state.agent_dispatch.leases : [];
+  const now = new Date().toISOString();
+  for (const lease of leases) {
+    if (lease.status === "leased" && lease.expires_at && lease.expires_at < now) {
+      result.push(`${lease.task_id || "(unknown)"}: lease for ${lease.role} expired at ${lease.expires_at}`);
+    }
   }
 }

@@ -24,7 +24,8 @@ if (!args.stateFile || !args.taskId) {
     "  --evidence TEXT           Evidence of test execution (repeatable)",
     "  --output TEXT             Test output or path to log file",
     "  --require-output         Require --output with actual test output (prevents fabricated results)",
-    "  --failure TEXT            Failure description (repeatable)",
+    "  --failure TEXT             Failure description (repeatable)",
+    "  --clear-failures           Clear all recorded failures before recording new results",
     "  --case NAME               Test case name (repeatable)",
     "  --role ROLE               Test role recording the result",
     "  --mr-url URL              MR URL for this task",
@@ -93,6 +94,9 @@ if (args.requireOutput && args.output && args.output.length < 20) {
 }
 
 task.test = task.test || {};
+if (args.clearFailures) {
+  task.test.failures = [];
+}
 task.test.cases = [...new Set([...(task.test.cases || []), ...args.cases])];
 task.test.commands = [...new Set([...(task.test.commands || []), ...args.commands])];
 task.test.evidence = [...new Set([...(task.test.evidence || []), ...args.evidence])];
@@ -211,6 +215,7 @@ function parseArgs(rawArgs) {
     mergeCommit: "",
     mergeEvidence: [],
     mergeCheckEvidence: [],
+    clearFailures: false,
     errors: []
   };
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -249,6 +254,10 @@ function parseArgs(rawArgs) {
     }
     if (arg === "--failure") {
       parsed.failures.push(rawArgs[++index]);
+      continue;
+    }
+    if (arg === "--clear-failures") {
+      parsed.clearFailures = true;
       continue;
     }
     if (arg === "--case") {

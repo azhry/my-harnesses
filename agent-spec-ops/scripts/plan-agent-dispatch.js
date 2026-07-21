@@ -41,7 +41,7 @@ function activeLeaseTaskIds() {
   const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
     ? state.agent_dispatch.leases
     : [];
-  return new Set(
+  const currentLeaseTaskIds = new Set(
     leases
       .filter((lease) => ["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease))
       .filter((lease) => {
@@ -50,18 +50,34 @@ function activeLeaseTaskIds() {
       })
       .map((lease) => lease.task_id)
   );
+  const staleActiveTasks = tasks.filter((task) =>
+    task.status === "active" && !currentLeaseTaskIds.has(task.id)
+  );
+  for (const task of staleActiveTasks) {
+    currentLeaseTaskIds.delete(task.id);
+  }
+  return currentLeaseTaskIds;
 }
 
 function activeRoles() {
   const roles = new Set();
-  for (const task of tasks) {
-    if (task.status === "active") {
-      roles.add(task.role);
-    }
-  }
   const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
     ? state.agent_dispatch.leases
     : [];
+  const currentLeasesByTaskRole = new Map();
+  for (const lease of leases) {
+    if (["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease)) {
+      currentLeasesByTaskRole.set(`${lease.task_id}:${lease.role}`, lease);
+    }
+  }
+  for (const task of tasks) {
+    if (task.status === "active") {
+      const hasCurrentLease = currentLeasesByTaskRole.has(`${task.id}:${task.role}`);
+      if (hasCurrentLease) {
+        roles.add(task.role);
+      }
+    }
+  }
   for (const lease of leases) {
     if (["requested", "leased", "active"].includes(lease.status) && leaseIsCurrent(lease)) {
       const task = taskById.get(lease.task_id);
@@ -117,6 +133,59 @@ function leaseIsCurrent(lease) {
   if (!lease || !lease.expires_at) return true;
   const expiresAt = Date.parse(lease.expires_at);
   return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+function sweepExpiredLeases() {
+  const leases = state.agent_dispatch && Array.isArray(state.agent_dispatch.leases)
+    ? state.agent_dispatch.leases
+    : [];
+  let swept = 0;
+  for (const lease of leases) {
+    if (!["requested", "leased", "active"].includes(lease.status)) continue;
+    if (!lease.expires_at) continue;
+    const expiresAt = Date.parse(lease.expires_at);
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      lease.status = "expired";
+      lease.expired_at = new Date().toISOString();
+      swept++;
+    }
+  }
+  if (swept > 0) {
+    state.log = state.log || [];
+    state.log.push({
+      at: now,
+      state: state.current_state,
+      note: `Lease sweep: expired ${swept} stale lease(s)`
+    });
+  }
+  return swept;
+}
+
+function sweepStaleSpawnRequests() {
+  const requests = Array.isArray(state.agent_dispatch.spawn_requests)
+    ? state.agent_dispatch.spawn_requests
+    : [];
+  let swept = 0;
+  for (const request of requests) {
+    if (!["active", "spawned"].includes(request.status)) continue;
+    if (!request.updated_at) continue;
+    const updatedAt = Date.parse(request.updated_at);
+    const ageMs = Date.now() - updatedAt;
+    if (ageMs > 4 * 60 * 60 * 1000) {
+      request.status = "expired";
+      request.updated_at = now;
+      swept++;
+    }
+  }
+  if (swept > 0) {
+    state.log = state.log || [];
+    state.log.push({
+      at: now,
+      state: state.current_state,
+      note: `Spawn request sweep: expired ${swept} stale request(s) (>4h old)`
+    });
+  }
+  return swept;
 }
 
 function promptForTask(task, dispatchRole) {
@@ -291,6 +360,9 @@ state.agent_dispatch = state.agent_dispatch || {
   leases: [],
   history: []
 };
+
+sweepExpiredLeases();
+sweepStaleSpawnRequests();
 refreshOpenSpawnRequestPrompts();
 
 if (enableAuto) {
